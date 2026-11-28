@@ -441,7 +441,7 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "onboardingFunnel", label: L("Onboarding funnel", "ऑनबोर्डिंग फ़नल", "ऑनबोर्डिंग फनेल"), icon: "chart-line", href: "/admin/onboarding-funnel", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       { key: "unfinishedRegistrations", label: L("Unfinished registrations", "अधूरे पंजीकरण", "अपूर्ण नोंदण्या"), icon: "user-plus", href: "/admin/shop-registrations/unfinished", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       // docs/shop-welcome-kit-2026-11: the welcome kit (printable QR banners) for shops live before it. Admin only, while its flag is on.
-      { key: "welcomeKit", label: L("Send welcome kit", "वेलकम किट भेजें", "वेलकम किट पाठवा"), icon: "megaphone", href: "/admin/shops/welcome-kit", permission: ADMIN_ONLY, feature: "shop_welcome_kit_admin_send_enabled" },
+      { key: "welcomeKit", label: L("Send welcome kit", "वेलकम किट भेजें", "वेलकम किट पाठवा"), icon: "megaphone", href: "/admin/shops/welcome-kit", permission: PERMISSIONS.SHOP_WELCOME_KIT_SEND, feature: "shop_welcome_kit_admin_send_enabled" },
       // docs/shop-documents-2026-10: shops missing documents, reminders on the 1st / 15th, suspension after the 3rd.
       { key: "missingDocuments", label: L("Shops missing documents", "दस्तावेज़ बाकी दुकानें", "कागदपत्रे बाकी दुकाने"), icon: "file-check", href: "/admin/shops/missing-documents", permission: PERMISSIONS.SHOP_APPROVE },
       // docs/shop-membership-renewal-2026-11: shops by yearly membership state and end date, CSV, exemptions (admin).
@@ -653,6 +653,7 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "allShops", label: L("All shops", "सभी दुकानें", "सर्व दुकाने"), icon: "store", href: "/admin/shops", count: "allShops", permission: PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY },
       { key: "suspensions", label: L("Suspensions", "निलंबन", "निलंबन"), icon: "lock", href: "/admin/suspensions", count: "activeSuspensions", permission: PERMISSIONS.SHOP_SUSPEND },
       { key: "compliance", label: L("Compliance & GST/PAN", "अनुपालन व जीएसटी/पैन", "अनुपालन व जीएसटी/पॅन"), icon: "scroll-text", href: "/admin/console/compliance", permission: COMPLIANCE },
+      { key: "welcomeKit", label: L("Send welcome kit / banners", "वेलकम किट / बैनर भेजें", "वेलकम किट / बॅनर पाठवा"), icon: "megaphone", href: "/admin/shops/welcome-kit", permission: PERMISSIONS.SHOP_WELCOME_KIT_SEND, feature: "shop_welcome_kit_admin_send_enabled" },
       { key: "registrations", label: L("Registrations", "पंजीकरण", "नोंदण्या"), icon: "user-plus", href: "/admin/shop-registrations", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       { key: "autoApproved", label: L("Auto-approved", "स्वतः मंज़ूर", "स्वयं मंजूर"), icon: "circle-check", href: "/admin/shops/auto-approved", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       // docs/dealer-programme (GKS-SH-004): instant approvals on GST/PAN + payment, with evidence. Only while that flag is on.

@@ -275,7 +275,8 @@ describe("CHARGEBACK", () => {
     const operatorNotes = await db.select().from(notifications).where(eq(notifications.userId, operator.id));
     expect(operatorNotes.map((n) => n.type)).not.toContain("support.payment_chargeback");
 
-    const [view] = await listChargebacks();
+    // The dispute's respond_by is fixed (27-Nov-2026 23:59 IST): read the list as of before it, not today.
+    const [view] = await listChargebacks(200, new Date("2026-11-25T10:00:00+05:30"));
     expect(view).toMatchObject({ outcome: "OPEN", overdue: false, amountPaise: 25_000, intentAmountPaise: 25_000, description: "Order GK-1001" });
   });
 

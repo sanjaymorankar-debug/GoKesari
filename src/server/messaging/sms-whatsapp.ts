@@ -11,9 +11,10 @@
  * here; callers do not change. WhatsApp's Meta Cloud API mode is used only by
  * the shop-order alerts (notifications/providers/whatsapp-meta.ts).
  */
-import { getEnv, messagingConfigProblem, msg91ConfigProblem, smsFortiusConfigProblem } from "@/lib/env";
+import { getEnv, isProductionSite, messagingConfigProblem, msg91ConfigProblem, smsFortiusConfigProblem } from "@/lib/env";
 import { db } from "@/server/db";
 import { outboundTestMessages } from "@/server/db/schema";
+import { sendEmail } from "@/server/email/transport";
 
 export type TextChannel = "SMS" | "WHATSAPP";
 
@@ -56,7 +57,36 @@ export async function sendText(channel: TextChannel, to: string, body: string, p
     .insert(outboundTestMessages)
     .values({ channel, toAddress: to, body: body.slice(0, 2000), purpose: purpose.slice(0, 80) })
     .returning({ id: outboundTestMessages.id });
+  if (channel === "SMS") emailMockSmsCopy(to, body);
   return { providerRef: `mock:${row.id}` };
+}
+
+/** The test inbox that gets a copy of each mock SMS (SMS_MOCK_EMAIL_TO), or null: unset, or gokesari.com. */
+export function mockSmsEmailTarget(env = getEnv()): string | null {
+  const target = env.SMS_MOCK_EMAIL_TO?.trim();
+  if (!target || isProductionSite(env)) return null;
+  return target;
+}
+
+/** "[test SMS to +91…] Code 482913": the first 4–8 digit number in the text, else its start. */
+export function mockSmsEmailSubject(to: string, body: string): string {
+  const code = body.match(/\b\d{4,8}\b/)?.[0];
+  return `[test SMS to ${to}] ${code ? `Code ${code}` : body.slice(0, 60)}`;
+}
+
+/**
+ * Test site (owner, 28 Nov 2026): testers get the mock SMS by e-mail, the code in the subject.
+ * Sent after the outbox row, never awaited: a full mail quota leaves the code on /admin/test-messages.
+ */
+function emailMockSmsCopy(to: string, body: string): void {
+  const target = mockSmsEmailTarget();
+  if (!target) return;
+  void sendEmail({
+    to: target,
+    keepRecipient: true,
+    subject: mockSmsEmailSubject(to, body),
+    text: `Test site: this SMS was not sent to a phone (SMS_PROVIDER=mock).\n\nTo: ${to}\n\n${body}`,
+  }).catch((error: unknown) => console.warn("[sms:mock] e-mail copy not sent:", error instanceof Error ? error.message : error));
 }
 
 /**

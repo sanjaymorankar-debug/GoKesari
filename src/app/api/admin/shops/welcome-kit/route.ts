@@ -1,5 +1,7 @@
 /**
- * docs/shop-welcome-kit-2026-11, requirement 7: Admin → Shops → Send welcome kit. ADMIN only;
+ * docs/shop-welcome-kit-2026-11, requirement 7: Admin → Shops → Send welcome kit. Owner, 28-Nov-2026: one shop
+ * (send, resend banner) for every role with shop-welcome-kit:send (Admin, Operator, Operations manager,
+ * Support manager, Support user); bulk runs ADMIN only;
  * answers "not available" until the feature flag shop_welcome_kit_admin_send_enabled is on.
  *
  * GET  ?q=&city=&district=&notWelcomed=1   → { enabled, total, shops } (live shops + welcome-kit status)
@@ -14,13 +16,15 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { ok, parseBody, route } from "@/server/api/handler";
-import { requireRole } from "@/server/authz/guards";
+import { forbidden } from "@/lib/errors";
+import { requirePermission } from "@/server/authz/guards";
+import { PERMISSIONS } from "@/server/authz/permissions";
 import { findWelcomeKitShops, resendUpdatedBanner, sendWelcomeKitBulk, sendWelcomeKitToShop, welcomeKitAdminSendEnabled } from "@/server/shop-banner/admin-send";
 
 export const dynamic = "force-dynamic";
 
 export const GET = route(async (request: NextRequest) => {
-  await requireRole("ADMIN");
+  await requirePermission(PERMISSIONS.SHOP_WELCOME_KIT_SEND);
   const params = new URL(request.url).searchParams;
   const found = await findWelcomeKitShops({
     q: params.get("q"),
@@ -46,9 +50,11 @@ const body = z.union([
 ]);
 
 export const POST = route(async (request: NextRequest) => {
-  const user = await requireRole("ADMIN");
+  const user = await requirePermission(PERMISSIONS.SHOP_WELCOME_KIT_SEND);
   const input = await parseBody(request, body);
   if ("shopId" in input) return ok(await sendWelcomeKitToShop(input.shopId, user));
   if ("resendShopId" in input) return ok(await resendUpdatedBanner(input.resendShopId, user));
+  // Bulk runs (a whole city, district or every shop) stay ADMIN only.
+  if (user.role !== "ADMIN") throw forbidden("Only an admin can send the welcome kit to many shops at once.");
   return ok(await sendWelcomeKitBulk(input.bulk, user));
 });
