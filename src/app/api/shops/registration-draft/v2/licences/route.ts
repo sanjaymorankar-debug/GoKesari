@@ -33,6 +33,8 @@ const fieldsSchema = z.object({
   issuingAuthority: z.string().trim().max(120).nullish(),
   consent: z.boolean().optional(),
   promise: z.boolean().optional(),
+  /** Owner, 28-Nov-2026: the number is expired — "I will renew it and upload the new one within <N> days". */
+  renewalPromise: z.boolean().optional(),
   ocr: z.record(z.string(), z.string().max(500).nullable()).nullish(),
 });
 
@@ -65,6 +67,7 @@ export const POST = route(async (request: NextRequest) => {
       issuingAuthority: text("issuingAuthority"),
       consent: text("consent") === "true",
       promise: text("promise") === "true",
+      renewalPromise: text("renewalPromise") === "true",
       ocr,
     });
     if (!parsed.success) throw validationFailed("Please check the highlighted fields.");

@@ -6,8 +6,11 @@
  *   name, address or owner changed since the last signature.
  * Existing shops get a grace period (rule sellerAgreements.graceDays) from the first time they are asked,
  * then take no new orders until they sign. New registrations sign before paying, so no grace applies.
- * Signing is refused while a licence the shop type requires is missing or expired — except a missing licence of an
- * onboarding v2 registration, which may be uploaded after go-live (owner, 27-Nov-2026: every licence incl. FSSAI).
+ * Signing is refused while a licence the shop type requires is missing or expired — except at an onboarding v2 / v3
+ * registration that is not live yet: a missing licence may be uploaded after go-live (owner, 27-Nov-2026: every
+ * licence incl. FSSAI) and an expired one renewed after go-live on the owner's promise (owner, 28-Nov-2026).
+ * A live shop keeps the current policy (missing / expired block re-signing), and so does an original-wizard (v1)
+ * registration (FSSAI first).
  */
 import { and, desc, eq, isNull, lte } from "drizzle-orm";
 
@@ -58,6 +61,11 @@ export type AgreementStatus = {
   documents: DocumentStatus[];
   /** Licences that must be uploaded / renewed before the owner can sign. */
   blockers: string[];
+  /**
+   * Owner, 28-Nov-2026 (~11.50 IST): an onboarding v2 / v3 registration not live yet signs with an EXPIRED licence on
+   * a renewal promise instead of being blocked — these are the expired ones (the signer ticks the promise).
+   */
+  renewals: LicenceRenewal[];
   graceUntil: string | null;
   /** Past the grace period: the shop takes no new orders until it signs. */
   overdue: boolean;
@@ -71,18 +79,48 @@ async function loadShop(shopId: string): Promise<Shop> {
   return shop;
 }
 
+/** An expired licence a v2 / v3 registration may sign with on a renewal promise (owner, 28-Nov-2026). */
+export type LicenceRenewal = {
+  /** The licence's document type (shop_legal_documents.doc_type) — the key its renewal promise is recorded under. */
+  key: string;
+  label: string;
+  /** The latest expiry date on file (YYYY-MM-DD). */
+  expiredOn: string;
+  /** Days the owner has to renew and upload it (rule shopDocumentFollowUp.promiseDays). */
+  days: number;
+  /** "<Licence> expired on <date> — renew and upload the new one within <N> days or the shop will be paused." */
+  message: string;
+};
+
+/** The owner's line for an expired licence promised for renewal (also used by the registration licences screen). */
+export function renewalLine(label: string, expiredOn: string, days: number): string {
+  return `${label} expired on ${calendarDate(expiredOn)} — renew and upload the new one within ${days} days or the shop will be paused.`;
+}
+
 /** A licence the shop type requires that is missing, rejected or expired — signing waits for it. */
 export async function licenceBlockers(shop: Pick<Shop, "id" | "shopType">, now: Date = new Date()): Promise<string[]> {
+  return (await licenceSigningCheck(shop, now)).blockers;
+}
+
+/**
+ * What licences mean for signing now: the blockers, and — for an onboarding v2 / v3 registration that is not live yet
+ * — the expired licences that may be renewed after go-live on a promise (owner, 28-Nov-2026 ~11.50 IST). A live shop,
+ * and a registration of the original wizard (v1, FSSAI first), keep the rule as it was: missing and expired block.
+ */
+export async function licenceSigningCheck(shop: Pick<Shop, "id" | "shopType">, now: Date = new Date()): Promise<{ blockers: string[]; renewals: LicenceRenewal[] }> {
   const today = new Date(now.getTime() + 330 * 60_000).toISOString().slice(0, 10);
-  const [required, mustHave, rows, uploadLater] = await Promise.all([
+  const [required, mustHave, rows, uploadLater, followUp] = await Promise.all([
     requiredLegalDocTypes(shop),
     missingMustHaveDocuments(shop),
     db.select().from(shopLegalDocuments).where(eq(shopLegalDocuments.shopId, shop.id)),
-    isV2Registration(shop.id),
+    isV2RegistrationNotLive(shop.id),
+    getRule("shopDocumentFollowUp"),
   ]);
   // Onboarding v2 (owner, 27-Nov-2026): a missing licence, FSSAI included, is uploaded after go-live on the
-  // document follow-up grace period, so it does not hold up the agreement. An expired one still does.
+  // document follow-up grace period, so it does not hold up the agreement of a registration (owner, 28-Nov-2026: a
+  // shop that is already live keeps the current policy — the missing licence blocks its re-signing as before).
   const blockers = uploadLater ? [] : mustHave.map((label) => `${label}: upload it first.`);
+  const renewals: LicenceRenewal[] = [];
   for (const type of required) {
     const docs = rows.filter((r) => r.docType === type && (r.status === "SUBMITTED" || r.status === "APPROVED"));
     const label = legalDocLabel({ docType: type, licenceName: null });
@@ -93,18 +131,25 @@ export async function licenceBlockers(shop: Pick<Shop, "id" | "shopType">, now: 
     const valid = docs.some((d) => !d.expiryDate || d.expiryDate >= today);
     if (!valid) {
       const latest = docs.map((d) => d.expiryDate!).sort().at(-1)!;
-      blockers.push(`${label}: expired on ${calendarDate(latest)} — upload the renewed licence first.`);
+      // Owner, 28-Nov-2026: an expired licence at a v2 / v3 registration is renewed after go-live on a promise.
+      // DEFAULT – confirm with Sanjay: the same period as a missing promised licence (shopDocumentFollowUp.promiseDays).
+      if (uploadLater) renewals.push({ key: type, label, expiredOn: latest, days: followUp.promiseDays, message: renewalLine(label, latest, followUp.promiseDays) });
+      else blockers.push(`${label}: expired on ${calendarDate(latest)} — upload the renewed licence first.`);
     }
   }
-  return blockers;
+  return { blockers, renewals };
 }
 
-/** The shop was registered through onboarding v2 (its licences may follow after go-live). */
-async function isV2Registration(shopId: string): Promise<boolean> {
+/**
+ * The shop was registered through onboarding v2 (any order, v3 included) and is not live yet: its licences may follow
+ * after go-live. Owner, 28-Nov-2026: only registrations — a shop that went live keeps the seller-agreement policy.
+ */
+async function isV2RegistrationNotLive(shopId: string): Promise<boolean> {
   const [row] = await db
     .select({ id: shopRegistrationDrafts.id })
     .from(shopRegistrationDrafts)
-    .where(and(eq(shopRegistrationDrafts.shopId, shopId), eq(shopRegistrationDrafts.flowVersion, "v2")))
+    .innerJoin(shops, eq(shops.id, shopRegistrationDrafts.shopId))
+    .where(and(eq(shopRegistrationDrafts.shopId, shopId), eq(shopRegistrationDrafts.flowVersion, "v2"), eq(shops.status, "PENDING_APPROVAL")))
     .limit(1);
   return Boolean(row);
 }
@@ -149,6 +194,7 @@ export async function getAgreementStatus(shopId: string, options: { track?: bool
     reason: null,
     documents: [],
     blockers: [],
+    renewals: [],
     graceUntil: null,
     overdue: false,
     noPublishedDocuments: false,
@@ -203,12 +249,14 @@ export async function getAgreementStatus(shopId: string, options: { track?: bool
     const [state] = await db.select().from(legalShopAgreementStates).where(eq(legalShopAgreementStates.shopId, shopId)).limit(1);
     graceUntil = state && !state.satisfiedAt ? state.graceUntil : null;
   }
+  const licenceCheck = required ? await licenceSigningCheck(shop, now) : { blockers: [], renewals: [] };
   return {
     ...base,
     required,
     reason,
     documents,
-    blockers: required ? await licenceBlockers(shop, now) : [],
+    blockers: licenceCheck.blockers,
+    renewals: licenceCheck.renewals,
     graceUntil: graceUntil?.toISOString() ?? null,
     overdue: Boolean(required && reason !== "REGISTRATION" && graceUntil && graceUntil.getTime() <= now.getTime()),
   };

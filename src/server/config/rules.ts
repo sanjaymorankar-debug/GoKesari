@@ -426,8 +426,16 @@ export const RULES = {
        * shop is told. 0 = never.
        */
       addressPendingAutoCancelHours: int(0, 72),
+      /**
+       * Owner, 28-Nov-2026: the order a NEW shop registration follows while onboarding_v2 is on — "v3" (referral →
+       * identity → seller agreement → GST / PAN → fee → type → address + pin → live → licences after go-live) or "v2"
+       * (the order before). Drafts already started keep theirs.
+       * DEFAULT – confirm with Sanjay: a switch back to "v2" is kept as a safety valve; default "v3".
+       */
+      shopRegistrationOrder: z.enum(["v2", "v3"]),
     }),
     defaults: {
+      shopRegistrationOrder: "v3",
       baseDeliveryFeePaise: 3_000,
       teamLeadsCanAddAgents: true,
       teamInviteExpiryDays: 7,

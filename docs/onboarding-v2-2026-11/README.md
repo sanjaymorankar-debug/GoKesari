@@ -66,6 +66,41 @@ All times in this document and in every v2 screen are IST.
    (already built).
 5. Mobile OTP unchanged (production flag stays off until the SMS provider PR #632 is live).
 
+## v3 order (28-Nov-2026, migration 0231)
+
+Owner decisions (Sanjay, 28-Nov-2026). A shop registration started while `onboarding_v2` is on keeps
+`flow_version = 'v2'` (all v2 safeguards unchanged) and gets `flow_order = 'v3'` (rule
+`onboardingV2.shopRegistrationOrder`, default `v3`; `v2` switches new drafts back). Drafts started before keep the
+v2 order. Code: `src/server/onboarding-v2/early-agreement.ts`, `licence-renewals.ts`; tests:
+`tests/integration/onboarding-v3-shop.test.ts`.
+
+1. **Referral code.** A guest gives it on `/shop/register` (checked with the REFERRAL step's rule,
+   `POST /api/shops/registration-draft/v2/guest-referral`); a shared link's code (`/r/<code>` cookie or `?ref=`) is
+   checked silently and the referral screen is never shown — only a missing or invalid code shows step 1, with a plain
+   message. Saved on the draft once signed in (`details.referralSource` = `SHARED_LINK` / `GUEST_CONFIRMED`, audit
+   `shop_registration_draft.referral_auto_applied`).
+2. **Identity + seller agreement.** The customer login sheet (Terms, e-mail code, mobile code) is the identity step
+   for guests (no separate customer sign-up); a verified customer skips it. Then `V3_AGREEMENT`: the published
+   template text (generic SLA; personalised copy follows go-live), Seller Terms / Terms / Privacy, goods undertaking,
+   the promise to upload or renew licences within `promiseDays` of go-live, and the typed name. Stored on the draft
+   (`early_agreement_*`).
+3. GST / PAN → owner name → 4. fee (flat ₹999 + GST) → 5. shop type → 6. address + pin.
+7. **Live.** "Create my shop and go live": every licence not given is promised (registration_licence_entries
+   LATER / PROMISED, documents_promised_at), the shop is created, the stored acceptance is applied
+   (`applyEarlyRegistrationAcceptance`: REGISTRATION_ACCEPT with the stored name, time and IP; undertaking;
+   `sla_accepted_at`) and the existing `goLiveV2` runs; signed copies e-mailed as before. A document the owner did not
+   see at step 2 (newer version, medical agreement) is still shown on the SLA screen. The shop's address becomes the
+   owner's saved delivery address "Shop" (default only if none).
+8. **Licences after go-live** (`V3_LICENCES`): upload now (My shop → Documents) or later; the existing follow-up
+   (90 days, reminders 1st / 15th, suspension, automatic reactivation) chases them.
+
+**Expired licence at a registration (owner, 28-Nov-2026 ~11.50 IST).** For a v2 / v3 registration not live yet, an
+expired licence no longer blocks: the owner ticks a renewal promise ("<Licence> expired on <date> — renew and upload
+the new one within <N> days or the shop will be paused."); recorded as a PROMISED entry with `expired_on` /
+`renewal_promised_at` + audit `shop_registration_draft.licence_renewal_promised`; the follow-up chases it like a missing
+promised licence (an expired copy on file does not count). Live shops and original-wizard (v1) registrations keep the
+old rule (missing / expired licences block signing). Rollback: `scripts/rollback-0231-shop-onboarding-v3.sql`.
+
 ## Defaults — "DEFAULT – confirm with Sanjay"
 
 From the brief's "Defaults chosen":

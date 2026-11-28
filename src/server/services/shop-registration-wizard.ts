@@ -227,6 +227,9 @@ export const WIZARD_STEPS = [
   "FEE",
   "V2_LICENCES",
   "SLA",
+  // 0231 (v3 order, owner 28-Nov-2026): the seller agreement accepted at step 2, and the licences after go-live.
+  "V3_AGREEMENT",
+  "V3_LICENCES",
 ] as const;
 export type WizardStep = (typeof WIZARD_STEPS)[number];
 
@@ -594,10 +597,31 @@ function v2NextStep(i: {
   addressConfirmed: boolean;
   location: boolean;
 }): WizardStep {
-  if (i.shop?.status === "APPROVED" && i.setup) return !i.setup.location ? "LOCATION" : !i.setup.products ? "LIVE" : "DONE";
+  const v3 = i.v2.order === "v3";
+  if (i.shop?.status === "APPROVED" && i.setup) {
+    if (!i.setup.location) return "LOCATION";
+    // 0231 (v3): the licences after go-live — upload now or later (the documents follow-up chases them).
+    if (v3 && i.v2.postLive && !i.v2.postLive.licencesAnswered && i.v2.postLive.promisedLicences.length > 0) return "V3_LICENCES";
+    return !i.setup.products ? "LIVE" : "DONE";
+  }
   if (i.draft.status === "COMPLETED") return "DONE";
   // The shop row exists (created at the agreement step, PENDING): the agreement, then the team's review if needed.
   if (i.draft.status === "SUBMITTED") return i.draft.slaAcceptedAt === null ? "SLA" : "WAITING";
+  // 0231 (owner, 28-Nov-2026), v3: referral → identity (the login sheet; skipped when verified) → the seller agreement
+  // accepted early → GST / PAN → owner → fee → type → address → pin → the shop is created and goes live; no licences
+  // before go-live.
+  if (v3) {
+    if (!i.referralAnswered) return "REFERRAL";
+    if (!i.v2.identity.done) return "V2_IDENTITY";
+    if (!i.v2.early?.accepted) return "V3_AGREEMENT";
+    if (!i.canContinue) return "IDENTITY";
+    if (!i.ownerName) return "OWNER";
+    if (!i.v2.fee.paid && !i.draft.feeDeferredAt) return "FEE";
+    if (!i.shopType) return "TYPE";
+    if (!i.addressConfirmed) return "ADDRESS";
+    if (!i.location) return "PIN";
+    return "SLA";
+  }
   if (!i.v2.identity.done) return "V2_IDENTITY";
   if (!i.referralAnswered) return "REFERRAL";
   if (!i.canContinue) return "IDENTITY";

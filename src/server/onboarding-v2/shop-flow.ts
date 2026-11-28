@@ -457,6 +457,8 @@ export interface LicenceEntryInput {
   consent?: boolean;
   /** Upload later: "I don't have this document right now, I will upload it within <period>". */
   promise?: boolean;
+  /** Owner, 28-Nov-2026: the number checked is EXPIRED — the owner promises to renew it (instead of being refused). */
+  renewalPromise?: boolean;
   /** What the device's reader read (Scan / Upload), kept for the operator. */
   ocr?: Record<string, string | null> | null;
   file?: { data: Buffer; source: "FILE" | "CAMERA" } | null;
@@ -499,14 +501,19 @@ async function storeLicenceFile(draft: ShopRegistrationDraft, licenceKey: string
 }
 
 /** The draft check's outcome for a checkable licence, after submitDraftDocument. */
-async function draftCheckOutcome(draftId: string, docType: string): Promise<{ status: LicenceEntryStatus | "REFUSED"; reason: string | null; ref: string | null }> {
+async function draftCheckOutcome(
+  draftId: string,
+  docType: string,
+): Promise<{ status: LicenceEntryStatus | "REFUSED"; reason: string | null; ref: string | null; expiredOn?: string | null }> {
   const [row] = await db
     .select()
     .from(shopRegistrationDraftChecks)
     .where(and(eq(shopRegistrationDraftChecks.draftId, draftId), eq(shopRegistrationDraftChecks.docType, docType as never)));
   if (!row) return { status: "PENDING_OPERATOR", reason: "Waiting for GoKesari's team.", ref: null };
   if (row.status === "VERIFIED") return { status: "VERIFIED", reason: null, ref: row.providerRef };
-  if (row.status === "FAILED" || row.status === "EXPIRED") return { status: "REFUSED", reason: message(row.status, row.errorCode), ref: row.providerRef };
+  // Owner, 28-Nov-2026: an expired licence is renewed after go-live on a promise (the caller asks for it).
+  if (row.status === "EXPIRED") return { status: "REFUSED", reason: message(row.status, row.errorCode), ref: row.providerRef, expiredOn: row.validUntil ?? null };
+  if (row.status === "FAILED") return { status: "REFUSED", reason: message(row.status, row.errorCode), ref: row.providerRef };
   return { status: "PENDING_OPERATOR", reason: message(row.status, row.errorCode), ref: row.providerRef };
 }
 
@@ -531,6 +538,8 @@ export async function saveLicenceEntry(actor: Actor, input: LicenceEntryInput): 
   let fileRef: string | null = null;
   let number = clean(input.number, 60);
   const ocr = input.ocr ?? null;
+  /** Owner, 28-Nov-2026: set when an expired licence is promised for renewal. */
+  let renewal: { expiredOn: string } | null = null;
 
   if (input.option === "LATER") {
     // Owner, 27-Nov-2026 (replaces DEFAULT #12 and, for v2, the 21-Nov "FSSAI before live" rule): every licence —
@@ -556,7 +565,22 @@ export async function saveLicenceEntry(actor: Actor, input: LicenceEntryInput): 
           if (input.option !== "UPLOAD") throw error;
         });
         const outcome = await draftCheckOutcome(draft.id, licence.key);
-        if (outcome.status === "REFUSED") {
+        if (outcome.status === "REFUSED" && outcome.expiredOn !== undefined) {
+          // Owner, 28-Nov-2026 (~11.50 IST): an EXPIRED licence no longer blocks the registration — the owner promises to
+          // renew it and the documents follow-up chases the renewal like a missing promised licence.
+          // DEFAULT – confirm with Sanjay: the renewal period is the follow-up's promiseDays, as for a missing licence.
+          const expiredOn = outcome.expiredOn ?? now.toISOString().slice(0, 10);
+          const { promiseDays } = await getRule("shopDocumentFollowUp");
+          const { renewalLine } = await import("@/server/legal-agreements/requirements");
+          const line = renewalLine(licence.label, expiredOn, promiseDays);
+          if (input.renewalPromise !== true) {
+            throw validationFailed(line, { reason: "LICENCE_EXPIRED", expiredOn, days: promiseDays, fields: { renewalPromise: line } });
+          }
+          status = "PROMISED";
+          statusReason = line;
+          verifyRef = outcome.ref;
+          renewal = { expiredOn };
+        } else if (outcome.status === "REFUSED") {
           if (input.option !== "UPLOAD") throw validationFailed(outcome.reason ?? "This number could not be verified.", { fields: { number: outcome.reason ?? "Not verified." } });
           status = "PENDING_OPERATOR";
           statusReason = outcome.reason;
@@ -588,7 +612,9 @@ export async function saveLicenceEntry(actor: Actor, input: LicenceEntryInput): 
     ocr,
     status,
     statusReason,
-    promiseAcceptedAt: input.option === "LATER" ? now : null,
+    promiseAcceptedAt: input.option === "LATER" || renewal ? now : null,
+    expiredOn: renewal?.expiredOn ?? null,
+    renewalPromisedAt: renewal ? now : null,
     verifiedAt: status === "VERIFIED" ? now : null,
     verifyRef,
     reviewedBy: null,
@@ -617,8 +643,18 @@ export async function saveLicenceEntry(actor: Actor, input: LicenceEntryInput): 
     entityType: "shop_registration_draft",
     entityId: draft.id,
     ipAddress: input.ip ?? null,
-    newValue: { licenceKey: licence.key, option: input.option, status, number: number ? `…${number.slice(-4)}` : null, file: fileRef !== null },
+    newValue: { licenceKey: licence.key, option: input.option, status, number: number ? `…${number.slice(-4)}` : null, file: fileRef !== null, ...(renewal ? { renewalPromise: true, expiredOn: renewal.expiredOn } : {}) },
   });
+  if (renewal) {
+    await recordAudit({
+      ...auditActorOf(actor),
+      action: AUDIT_ACTIONS.SHOP_REGISTRATION_LICENCE_RENEWAL_PROMISED,
+      entityType: "shop_registration_draft",
+      entityId: draft.id,
+      ipAddress: input.ip ?? null,
+      newValue: { licenceKey: licence.key, label: licence.label, expiredOn: renewal.expiredOn, promisedAt: now.toISOString() },
+    });
+  }
   return toWizardView((await findOpenDraft(actor.id))!);
 }
 
@@ -630,14 +666,34 @@ export async function saveLicenceEntry(actor: Actor, input: LicenceEntryInput): 
  * returned as it is.
  */
 export async function prepareV2Agreement(actor: Actor, input: { ip?: string | null; userAgent?: string | null } = {}): Promise<WizardView> {
+  const { finishV3Registration, isV3Draft, promiseV3Licences } = await import("./early-agreement");
   const open = await findOpenDraft(actor.id);
   if (!open) {
     const current = await getWizardDraft(actor);
-    if (current?.v2 && current.shop) return current;
+    if (current?.v2 && current.shop) {
+      // v3: an early acceptance not applied yet (a failure last time) is retried here.
+      if (current.v2.order === "v3" && current.nextStep === "SLA") {
+        const [row] = await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.shopId, current.shop.id)).limit(1);
+        if (row && isV3Draft(row)) {
+          await finishV3Registration(row.id, actor);
+          return (await getWizardDraft(actor)) ?? current;
+        }
+      }
+      return current;
+    }
     throw notFound("Registration in progress");
   }
   if (open.flowVersion !== "v2") throw conflict("This registration follows the earlier steps.", { reason: "NOT_V2" });
-  return submitDraftForPayment({ actor, ipAddress: input.ip ?? null, userAgent: input.userAgent ?? null });
+  if (!isV3Draft(open)) return submitDraftForPayment({ actor, ipAddress: input.ip ?? null, userAgent: input.userAgent ?? null });
+  // 0231 (v3): no licence was asked before go-live — each one the shop type needs is promised now (the existing
+  // follow-up chases it), the shop is created, and the seller agreement accepted at step 2 is applied: live.
+  const before = await toWizardView(open);
+  if (before.nextStep !== "SLA") throw conflict("Please finish every step first.", { reason: "STEP_OPEN", nextStep: before.nextStep });
+  await promiseV3Licences(open, before.v2?.licences ?? []);
+  const created = await submitDraftForPayment({ actor, ipAddress: input.ip ?? null, userAgent: input.userAgent ?? null });
+  await finishV3Registration(open.id, actor);
+  const [final] = await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.id, open.id));
+  return final ? toWizardView(final) : created;
 }
 
 /** After registerShop (called by the wizard): ledger entry for the paid fee, the owner's wallet, the role history. */

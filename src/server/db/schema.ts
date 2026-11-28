@@ -12121,6 +12121,19 @@ export const shopRegistrationDrafts = pgTable(
     ownerId: uuid("owner_id").notNull(),
     /** docs/onboarding-v2-2026-11 (0215): "v2" when the draft follows the onboarding_v2 order; null = the original wizard. */
     flowVersion: text("flow_version"),
+    /**
+     * 0231 (owner, 28-Nov-2026): "v3" — a v2 draft started after the new order (referral → identity → seller agreement
+     * accepted early → GST / PAN → fee → type → address + pin → live → licences after go-live). Null: the v2 order.
+     */
+    flowOrder: text("flow_order", { enum: ["v3"] }),
+    /** 0231: the seller agreement accepted at step 2 (template text; ticks + typed name), applied when the shop is created. */
+    earlyAgreementAcceptedAt: timestamp("early_agreement_accepted_at", { withTimezone: true }),
+    earlyAgreementName: text("early_agreement_name"),
+    earlyAgreementIp: text("early_agreement_ip"),
+    earlyAgreementUserAgent: text("early_agreement_user_agent"),
+    /** The published texts shown and the ticks given (see onboarding-v2/early-agreement.ts EarlyAgreementRecord). */
+    earlyAgreementDocuments: jsonb("early_agreement_documents").$type<Record<string, unknown>>(),
+    earlyAgreementAppliedAt: timestamp("early_agreement_applied_at", { withTimezone: true }),
     identityVerifiedAt: timestamp("identity_verified_at", { withTimezone: true }),
     /** SHOP or WHOLESALE: picks the v2 registration fee (rule onboardingV2). */
     feeKind: text("fee_kind", { enum: ["SHOP", "WHOLESALE"] }),
@@ -12223,6 +12236,7 @@ export const shopRegistrationDrafts = pgTable(
     check("shop_registration_drafts_assisted_role", sql`${t.assistedRole} IS NULL OR ${t.assistedRole} in ('DEALER', 'DEALER_EMPLOYEE', 'OPERATOR')`),
     check("shop_registration_drafts_status", sql`${t.status} in ('OPEN', 'SUBMITTED', 'COMPLETED', 'ABANDONED')`),
     check("shop_registration_drafts_route", sql`${t.route} IS NULL OR ${t.route} in ('GSTIN', 'PAN_ONLY')`),
+    check("shop_registration_drafts_flow_order", sql`${t.flowOrder} IS NULL OR ${t.flowOrder} in ('v3')`),
   ],
 );
 

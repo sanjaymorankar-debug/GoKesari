@@ -149,7 +149,7 @@ export async function shopsMissingDocuments(
         .from(shopDocumentReminders)
         .where(inArray(shopDocumentReminders.shopId, ids)),
       db
-        .select({ shopId: shopLegalDocuments.shopId, docType: shopLegalDocuments.docType, licenceKey: shopLegalDocuments.licenceKey, status: shopLegalDocuments.status })
+        .select({ shopId: shopLegalDocuments.shopId, docType: shopLegalDocuments.docType, licenceKey: shopLegalDocuments.licenceKey, status: shopLegalDocuments.status, expiryDate: shopLegalDocuments.expiryDate })
         .from(shopLegalDocuments)
         .where(inArray(shopLegalDocuments.shopId, ids)),
       db
@@ -164,6 +164,10 @@ export async function shopsMissingDocuments(
         .where(and(inArray(registrationLicenceEntries.shopId, ids), inArray(registrationLicenceEntries.status, ["VERIFIED", "PENDING_OPERATOR"]))),
     ]);
     const wizardShops = new Set(drafts.map((d) => d.shopId));
+    // Owner, 28-Nov-2026: an expired licence promised for renewal at registration is chased like a missing promised
+    // one — only a licence on file that has not expired counts as given for it.
+    const renewals = await (await import("@/server/onboarding-v2/licence-renewals")).openRenewalKeys(ids);
+    const todayIso = new Date(now + 330 * 60_000).toISOString().slice(0, 10);
     for (const row of chunk) {
       const status = new Map(documents.filter((d) => d.shopId === row.shop.id).map((d) => [d.docType, d.status as string]));
       const givenAtRegistration = new Set(registered.filter((r) => r.shopId === row.shop.id).map((r) => r.licenceKey));
@@ -186,6 +190,7 @@ export async function shopsMissingDocuments(
       const needed = requirementsFromRuleSet(ruleSet, row.shop.shopType, row.sellsFood, row.isDoctor).filter((r) => r.level !== "OPTIONAL");
       const sellerNeeded = needed.filter((r) => r.kind === "seller" && status.get(r.key as SellerDocType) !== "VERIFIED");
       const shopLicences = licences.filter((l) => l.shopId === row.shop.id);
+      const renewing = renewals.get(row.shop.id);
       const licenceNeeded = needed.filter(
         (r) =>
           r.kind !== "seller" &&
@@ -193,7 +198,8 @@ export async function shopsMissingDocuments(
           !shopLicences.some(
             (l) =>
               (r.kind === "custom" ? l.docType === "OTHER_LICENCE" && l.licenceKey === r.key : l.docType === r.key && l.licenceKey === "") &&
-              (l.status === "SUBMITTED" || l.status === "APPROVED"),
+              (l.status === "SUBMITTED" || l.status === "APPROVED") &&
+              (!renewing?.has(r.key) || !l.expiryDate || l.expiryDate >= todayIso),
           ),
       );
       const later = (r: { liveShopsDueAt: Date | null }) => r.liveShopsDueAt !== null && r.liveShopsDueAt.getTime() > now;

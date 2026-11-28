@@ -1618,6 +1618,13 @@
       "when": 1793273000000,
       "tag": "0230_flat_registration_fee_999",
       "breakpoints": true
+    },
+    {
+      "idx": 231,
+      "version": "7",
+      "when": 1793273100000,
+      "tag": "0231_shop_onboarding_v3",
+      "breakpoints": true
     }
   ]
 }

@@ -46,7 +46,10 @@ export function LoginSheetProvider({ enabled, config, children }: { enabled: boo
 
   useEffect(() => {
     if (!enabled) return;
-    const onOpen = (event: Event) => setOpen({ returnTo: (event as CustomEvent<{ returnTo?: string }>).detail?.returnTo });
+    const onOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ returnTo?: string; purpose?: LoginSheetOptions["purpose"] }>).detail;
+      setOpen({ returnTo: detail?.returnTo, purpose: detail?.purpose });
+    };
     window.addEventListener(OPEN_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_EVENT, onOpen);
   }, [enabled]);
@@ -88,12 +91,17 @@ const STEP_TITLE: Record<CustomerSheetStep, string> = {
   MOBILE: "Verify your mobile number",
   DONE: "All set",
 };
+/** 0231: the same steps as the shop registration's identity step (one account for shopping and the shop). */
+const SHOP_STEP_TITLE: Record<CustomerSheetStep, string> = { ...STEP_TITLE, CONSENT: "Register your shop" };
 
 function LoginSheet({ config, options, onClose }: { config: LoginSheetConfig; options: LoginSheetOptions; onClose: () => void }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const returnTo = options.returnTo ?? pathname;
+  // The shop registration's identity step (also when the sheet resumes there after the e-mail link / Google).
+  const forShop = options.purpose === "shop" || pathname === "/shop/register";
+  const titles = forShop ? SHOP_STEP_TITLE : STEP_TITLE;
   const [step, setStep] = useState<CustomerSheetStep | null>(config.signedIn ? null : "CONSENT");
   const [status, setStatus] = useState<CustomerLoginStatus | null>(null);
   const [accepted, setAccepted] = useState<{ atIst: string; version: string } | null>(null);
@@ -152,14 +160,18 @@ function LoginSheet({ config, options, onClose }: { config: LoginSheetConfig; op
           <div>
             {step && step !== "DONE" ? <p className="text-xs font-semibold uppercase tracking-wide text-kesari-700">Step {STEP_NUMBER[step]} of 3</p> : null}
             <h2 id="login-sheet-title" className="text-lg font-bold text-ink-900">
-              {step ? STEP_TITLE[step] : "One moment…"}
+              {step ? titles[step] : "One moment…"}
             </h2>
           </div>
           <button type="button" onClick={onClose} className="tap-target rounded-lg px-2 text-2xl leading-none text-ink-600 hover:bg-cream-100" aria-label="Close">
             ×
           </button>
         </div>
-        <p className="mt-1 text-sm text-ink-600">Your cart is kept. Nothing is charged until you pay.</p>
+        <p className="mt-1 text-sm text-ink-600" data-testid="login-sheet-intro">
+          {forShop
+            ? "One GoKesari account for shopping and for your shop: accept the Terms, then confirm your email and mobile number."
+            : "Your cart is kept. Nothing is charged until you pay."}
+        </p>
 
         <div className="mt-4 space-y-3">
           {error ? <Alert tone="danger">{error}</Alert> : null}
@@ -182,7 +194,7 @@ function LoginSheet({ config, options, onClose }: { config: LoginSheetConfig; op
                 , then come back to the cart.
               </Alert>
             ) : (
-              <EmailStep config={config} returnTo={returnTo} accepted={accepted} />
+              <EmailStep config={config} returnTo={returnTo} accepted={accepted} forShop={forShop} />
             )
           ) : null}
           {step === "MOBILE" ? <MobileStep status={status} onVerified={loadStatus} /> : null}
@@ -240,10 +252,12 @@ function EmailStep({
   config,
   returnTo,
   accepted,
+  forShop = false,
 }: {
   config: LoginSheetConfig;
   returnTo: string;
   accepted: { atIst: string; version: string } | null;
+  forShop?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [email, setEmail] = useState("");
@@ -290,7 +304,7 @@ function EmailStep({
         <SmsSecondFactor prompt={secondFactor} onCancel={() => setSecondFactor(null)} />
       ) : linkSent ? (
         <Alert tone="success" title="Check your email">
-          We sent a sign-in link to {email}. Open it on this phone or computer — you come back to your cart and continue
+          We sent a sign-in link to {email}. Open it on this phone or computer — you come back to {forShop ? "your shop registration" : "your cart"} and continue
           here. It works once and expires in 15 minutes.
         </Alert>
       ) : codeSentTo ? (
