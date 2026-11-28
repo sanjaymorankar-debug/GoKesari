@@ -1611,6 +1611,13 @@
       "when": 1793272900000,
       "tag": "0229_fee_pay_later",
       "breakpoints": true
+    },
+    {
+      "idx": 230,
+      "version": "7",
+      "when": 1793273000000,
+      "tag": "0230_flat_registration_fee_999",
+      "breakpoints": true
     }
   ]
 }

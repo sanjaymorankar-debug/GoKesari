@@ -16,6 +16,7 @@ import { ReferralManager } from "@/components/referral-manager";
 import { RegistrationFeeCouponManager } from "@/components/registration-fee-coupon-manager";
 import { RegistrationFeeManager } from "@/components/registration-fee-manager";
 import { RegistrationFeeSlabsEditor } from "@/components/registration-fee-slabs-editor";
+import { TurnoverFeeSwitch } from "@/components/turnover-fee-switch";
 import { ReleaseMobileForm } from "@/components/release-mobile-form";
 import { ShopApprovalPanel } from "@/components/shop-approval-panel";
 import { ShopComplianceManager } from "@/components/shop-compliance-manager";
@@ -44,6 +45,7 @@ import { listAllPending } from "@/server/services/price-requests";
 import { getReferralPerformance, listReferralCodes } from "@/server/services/referrals";
 import { listRegistrationFeeCoupons, registrationFeeGstRateBp } from "@/server/services/registration-fee-coupons";
 import { getActiveFee, listFeeHistory } from "@/server/services/registration-fees";
+import { getTurnoverSwitchState, mayUseTurnoverSwitch } from "@/server/services/turnover-fee-switch";
 import { listRolesForUsers } from "@/server/services/roles";
 import { getRegistrationFeeReport } from "@/server/services/shop-payments";
 import { countShopsByLifecycle, getShopOnboarding, type ShopOnboarding } from "@/server/services/shop-onboarding";
@@ -411,14 +413,17 @@ export default async function AdminConsoleSectionPage({
       const canManageFee = can(user.role, PERMISSIONS.REGISTRATION_FEE_MANAGE);
       // The fee slabs are an admin rule (PUT /api/admin/settings is ADMIN only).
       const canEditSlabs = canManageFee && user.role === "ADMIN";
-      const [feeReport, financeShops, activeFee, feeHistory, feeCoupons, feeSlabs, feeGstRateBp] = await Promise.all([
+      // Owner, 28-Nov-2026: the slabs' On/Off button — an admin or operator asks, a different one approves.
+      const canSwitchSlabs = mayUseTurnoverSwitch(user.role);
+      const [feeReport, financeShops, activeFee, feeHistory, feeCoupons, feeSlabs, feeGstRateBp, turnoverSwitch] = await Promise.all([
         getRegistrationFeeReport(),
         searchShopsAdmin({ limit: 500 }),
         canManageFee ? getActiveFee() : Promise.resolve(undefined),
         canManageFee ? listFeeHistory() : Promise.resolve([]),
         canManageFee ? listRegistrationFeeCoupons() : Promise.resolve([]),
         canEditSlabs ? getRule("registrationFeeByTurnover") : Promise.resolve(null),
-        canEditSlabs ? registrationFeeGstRateBp().catch(() => null) : Promise.resolve(null),
+        canEditSlabs || canSwitchSlabs ? registrationFeeGstRateBp().catch(() => null) : Promise.resolve(null),
+        canSwitchSlabs ? getTurnoverSwitchState() : Promise.resolve(null),
       ]);
       return (
         <>
@@ -452,6 +457,11 @@ export default async function AdminConsoleSectionPage({
               canRecordPayment={can(user.role, PERMISSIONS.PAYMENT_RECORD)}
             />
           </Section>
+          {turnoverSwitch ? (
+            <Section id="turnover-switch" title="Turnover slabs (on / off)">
+              <TurnoverFeeSwitch state={turnoverSwitch} viewerId={user.id} gstLabel={feeGstRateBp !== null ? formatGstRate(feeGstRateBp) : null} />
+            </Section>
+          ) : null}
           {feeSlabs ? (
             <Section id="fee-slabs" title="Fee by turnover">
               <RegistrationFeeSlabsEditor rule={feeSlabs} gstLabel={feeGstRateBp !== null ? formatGstRate(feeGstRateBp) : null} />

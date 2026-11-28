@@ -26,9 +26,10 @@ const rule = RULES.registrationFeeByTurnover.defaults;
 const CRORE = 1_00_00_000;
 
 describe("registration fee by turnover slab — the default rule", () => {
-  it("is on, with slabs up to ₹2 crore, up to ₹10 crore and above", () => {
+  // Owner, 28-Nov-2026: off by default (the flat ₹999); the slabs are kept for when it is switched on (four-eye).
+  it("is off, keeping slabs up to ₹2 crore, up to ₹10 crore and above", () => {
     expect(rule).toEqual({
-      enabled: true,
+      enabled: false,
       slabs: [
         { upToRupees: 2 * CRORE, feePaise: 99_900 },
         { upToRupees: 10 * CRORE, feePaise: 4_99_900 },

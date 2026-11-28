@@ -1234,7 +1234,7 @@ export const RULES = {
   },
   registrationFeeByTurnover: {
     description:
-      "One-time shop registration fee on Add my shop (/shop/register), by the annual turnover the owner declares, in slabs (src/lib/registration-fee.ts): slabs is a list of { upToRupees, feePaise } — turnover up to a slab's upToRupees pays its feePaise; the last slab has upToRupees null and covers everything above. An admin adds or removes slabs (up to 20) in Admin → Registration fees → Fee by turnover. Fees are before GST (added at the PLATFORM_FEE_GST rate). enabled: off → the flat registration fee schedule (Admin → Registration fee) applies instead. Each shop keeps the fee it registered with; a change here never alters it. A value saved in the older three-slab form (slab1UpToRupees … slab3FeePaise) is read as the same three slabs.",
+      "One-time shop registration fee on Add my shop (/shop/register), by the annual turnover the owner declares, in slabs (src/lib/registration-fee.ts): slabs is a list of { upToRupees, feePaise } — turnover up to a slab's upToRupees pays its feePaise; the last slab has upToRupees null and covers everything above. An admin adds or removes slabs (up to 20) in Admin → Registration fees → Fee by turnover. Fees are before GST (added at the PLATFORM_FEE_GST rate). enabled: off (the default since 28-Nov-2026) → the flat registration fee schedule (Admin → Registration fee, ₹999 + GST) applies instead. enabled is switched only with the four-eye Turnover slabs button in Admin → Registration fees (an admin or operator asks, a different admin or operator approves); saving the slabs here never changes it. Each shop keeps the fee it registered with; a change here never alters it. A value saved in the older three-slab form (slab1UpToRupees … slab3FeePaise) is read as the same three slabs.",
     schema: z.preprocess(
       upgradeLegacyTurnoverRule,
       z
@@ -1250,10 +1250,14 @@ export const RULES = {
           if (problem) ctx.addIssue({ code: "custom", message: problem, path: ["slabs"] });
         }),
     ),
-    // Owner, 28 Oct 2026: on — up to ₹2 crore, up to ₹10 crore, above ₹10 crore.
-    // The fees are starting values; the admin sets them, and adds slabs, in Admin → Registration fees.
+    // Owner, 28 Oct 2026: up to ₹2 crore, up to ₹10 crore, above ₹10 crore. The fees are starting values; the admin
+    // sets them, and adds slabs, in Admin → Registration fees.
+    // Owner, 28-Nov-2026: "Remove turnover slab itself and create a button to switch it on or off by admin / operator
+    // with four-eye principle for later enablement" and "fee should be flat 999 as default fee" — off by default (the
+    // flat fee, ₹999 from migration 0230); the slabs are kept for when it is switched on again
+    // (src/server/services/turnover-fee-switch.ts).
     defaults: {
-      enabled: true,
+      enabled: false,
       slabs: DEFAULT_TURNOVER_SLABS,
     },
   },

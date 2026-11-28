@@ -17,6 +17,7 @@ import { getRule, listRules, resetRule, setRule } from "@/server/services/settin
 import { fourEyeAdminOn, requestFourEye, FOUR_EYE_TYPES } from "@/server/approvals";
 import { changedTaxFields, isTaxRuleKey } from "@/server/tax-register/rules";
 import { refuseDirectTaxEdit } from "@/server/tax-register/changes";
+import { assertResetKeepsTurnoverEnabled, keepTurnoverEnabled, TURNOVER_RULE_KEY } from "@/server/services/turnover-fee-switch";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,9 @@ export const PUT = route(async (request: NextRequest) => {
     if (changed.length) await refuseDirectTaxEdit(`${body.key} (${changed.join(", ")})`);
   }
   if (body.key === "territoryDealer" && body.value.enabled === true) throw validationFailed("Territories are now franchise zones: sell and manage them in Admin → Franchise.");
+  // Owner, 28-Nov-2026: the turnover fee slabs are switched on or off only with the four-eye button (Admin →
+  // Registration fees, services/turnover-fee-switch.ts); a save here changes the slabs and keeps enabled as it is.
+  if (body.key === TURNOVER_RULE_KEY) body.value = await keepTurnoverEnabled(body.value);
   // docs/rbac: with rbac_v2_four_eye_admin on, a second admin approves rule changes (thresholds, fees, charges) first.
   if (await fourEyeAdminOn()) {
     return ok(
@@ -60,6 +64,7 @@ export const DELETE = route(async (request: NextRequest) => {
   const key = new URL(request.url).searchParams.get("key");
   if (!key || !(key in RULES)) throw validationFailed("Unknown setting.");
   if (isTaxRuleKey(key)) await refuseDirectTaxEdit(`Resetting ${key}`);
+  if (key === TURNOVER_RULE_KEY) await assertResetKeepsTurnoverEnabled();
   if (await fourEyeAdminOn()) {
     return ok(
       await requestFourEye(FOUR_EYE_TYPES.RULE_RESET, admin, { subjectType: "rule", subjectId: key, title: `Reset setting ${key} to defaults`, reason: `Setting ${key} reset`, payload: { key } }),

@@ -29,10 +29,13 @@ interface DraftSlab {
  * admin adds a slab (it goes in before the last, "above" slab) or removes one.
  * Saved as the admin rule `registrationFeeByTurnover`; ADMIN only, audited.
  * Shops already registered keep the fee they were charged.
+ *
+ * Owner, 28-Nov-2026: the slabs are switched on or off only with the four-eye
+ * Turnover slabs button (TurnoverFeeSwitch); saving here changes the slabs and
+ * never `enabled` (the server keeps it as it is, too).
  */
 export function RegistrationFeeSlabsEditor({ rule, gstLabel }: { rule: TurnoverFeeRule; gstLabel: string | null }) {
   const router = useRouter();
-  const [enabled, setEnabled] = useState(rule.enabled);
   const [slabs, setSlabs] = useState<DraftSlab[]>(
     rule.slabs.map((s) => ({ limit: s.upToRupees === null ? "" : String(s.upToRupees / CRORE), fee: String(s.feePaise / 100) })),
   );
@@ -58,7 +61,7 @@ export function RegistrationFeeSlabsEditor({ rule, gstLabel }: { rule: TurnoverF
   });
   const complete = parsed.every((s) => s !== null) ? (parsed as TurnoverFeeSlab[]) : null;
   const problem = complete ? turnoverSlabsProblem(complete) : null;
-  const preview: TurnoverFeeRule | null = complete && !problem ? { enabled, slabs: complete } : null;
+  const preview: TurnoverFeeRule | null = complete && !problem ? { enabled: rule.enabled, slabs: complete } : null;
 
   function update(i: number, patch: Partial<DraftSlab>) {
     setSlabs((all) => all.map((s, j) => (j === i ? { ...s, ...patch } : s)));
@@ -116,13 +119,10 @@ export function RegistrationFeeSlabsEditor({ rule, gstLabel }: { rule: TurnoverF
       {error ? <Alert tone="danger" title="Could not save">{error}</Alert> : null}
       {notice ? <Alert tone="success" title="Saved">{notice}</Alert> : null}
 
-      <label className="flex items-center gap-2 text-sm text-ink-800">
-        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-        Charge the registration fee by annual turnover
-      </label>
-      <p className="text-xs text-ink-500">
-        Off: every shop pays the flat fee below. On: the owner enters their annual turnover on Add my
-        shop and pays the fee for its slab.
+      <p className="text-xs text-ink-500" data-testid="fee-slabs-state">
+        {rule.enabled
+          ? "The turnover slabs are on: the owner enters their annual turnover on Add my shop and pays the fee for its slab."
+          : "The turnover slabs are off: every shop pays the flat fee. These slabs apply once they are switched on (Turnover slabs button, with a second approver)."}
       </p>
 
       <ol className="space-y-3" data-testid="fee-slab-rows">
