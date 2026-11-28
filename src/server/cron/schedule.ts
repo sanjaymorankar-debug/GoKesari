@@ -260,6 +260,8 @@ export const DAILY: readonly Job[] = [
   // Owner, 5 Nov 2026: dealer team reports — yesterday's every day, last week's on Mondays (dealer, team leads, admins).
   { name: "dealer-team-report-daily", run: async () => (await import("@/server/dealers/team-report")).sendTeamReports("DAY") },
   { name: "dealer-team-report-weekly", weekday: 1, run: async () => (await import("@/server/dealers/team-report")).sendTeamReports("WEEK") },
+  // Owner, 27-Nov-2026: on the 1st, every dealer's report for last month (shops by name, commission, a super franchisee's team).
+  { name: "dealer-monthly-report", run: async () => (await import("@/server/dealers/report-extras")).sendMonthlyReports() },
   // docs/purchase-lists-2026-10: "time to reorder" for weekly / monthly lists that are due again.
   { name: "purchase-list-reminders", run: async () => (await import("@/server/services/purchase-lists")).sendPurchaseListReminders() },
   // docs/shop-documents-2026-10: live shops missing documents — reminders on the 1st and 15th, suspension after the 3rd.
