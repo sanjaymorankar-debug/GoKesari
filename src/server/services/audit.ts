@@ -57,6 +57,14 @@ export const AUDIT_ACTIONS = {
   SHOP_REGISTRATION_LICENCE_REVIEWED: "shop_registration_draft.licence_reviewed",
   /** Flow 2: the owner accepted the seller agreement (step 6b) and the shop went to go-live. */
   SHOP_REGISTRATION_SLA_ACCEPTED: "shop_registration_draft.sla_accepted",
+  /** 0231 (v3 order): the owner accepted the seller agreement texts at step 2, before the shop exists. */
+  SHOP_REGISTRATION_EARLY_AGREEMENT_ACCEPTED: "shop_registration_draft.early_agreement_accepted",
+  /** 0231: that early acceptance was applied to the shop's personalised agreement when the shop was created. */
+  SHOP_REGISTRATION_EARLY_AGREEMENT_APPLIED: "shop_registration_draft.early_agreement_applied",
+  /** 0231 (owner, 28-Nov-2026): an expired licence promised for renewal at registration instead of blocking it. */
+  SHOP_REGISTRATION_LICENCE_RENEWAL_PROMISED: "shop_registration_draft.licence_renewal_promised",
+  /** 0231 (owner, 28-Nov-2026): the referral saved without the referral screen (a shared link, or the guest's step 1). */
+  SHOP_REGISTRATION_REFERRAL_AUTO_APPLIED: "shop_registration_draft.referral_auto_applied",
   SHOP_APPROVED: "shop.approved",
   /** docs/shop-welcome-kit-2026-11: an admin sent the welcome kit (printable QR banners) to a shop that was already live, or to a city / district. */
   SHOP_WELCOME_KIT_SENT: "shop.welcome_kit_sent",
@@ -223,6 +231,12 @@ export const AUDIT_ACTIONS = {
   SHOP_FEE_PAY_LATER_REJECTED: "shop.fee_pay_later_rejected",
   SHOP_FEE_PAY_LATER_SETTLED: "shop.fee_pay_later_settled",
   SHOP_FEE_RECOVERED_FROM_PAYOUT: "shop.fee_recovered_from_payout",
+  // 0232 (owner, 28-Nov-2026): v2 / v3 go-live rule and the support escalation ladder
+  SUPPORT_ESCALATION_OPENED: "support_escalation.opened",
+  SUPPORT_ESCALATION_ESCALATED: "support_escalation.escalated",
+  SUPPORT_ESCALATION_RESOLVED: "support_escalation.resolved",
+  SHOP_REVIEW_FLAG_RAISED: "shop.review_flag_raised",
+  SHOP_REVIEW_FLAG_RESOLVED: "shop.review_flag_resolved",
   SHOP_REGISTRATION_LINK_CREATED: "shop.registration_link_created",
   SHOP_REGISTRATION_LINK_CANCELLED: "shop.registration_link_cancelled",
   SHOP_REGISTRATION_EXPIRY_CHANGED: "shop.registration_expiry_changed",

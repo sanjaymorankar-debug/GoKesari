@@ -66,6 +66,76 @@ All times in this document and in every v2 screen are IST.
    (already built).
 5. Mobile OTP unchanged (production flag stays off until the SMS provider PR #632 is live).
 
+## v3 order (28-Nov-2026, migration 0231)
+
+Owner decisions (Sanjay, 28-Nov-2026). A shop registration started while `onboarding_v2` is on keeps
+`flow_version = 'v2'` (all v2 safeguards unchanged) and gets `flow_order = 'v3'` (rule
+`onboardingV2.shopRegistrationOrder`, default `v3`; `v2` switches new drafts back). Drafts started before keep the
+v2 order. Code: `src/server/onboarding-v2/early-agreement.ts`, `licence-renewals.ts`; tests:
+`tests/integration/onboarding-v3-shop.test.ts`.
+
+1. **Referral code.** A guest gives it on `/shop/register` (checked with the REFERRAL step's rule,
+   `POST /api/shops/registration-draft/v2/guest-referral`); a shared link's code (`/r/<code>` cookie or `?ref=`) is
+   checked silently and the referral screen is never shown — only a missing or invalid code shows step 1, with a plain
+   message. Saved on the draft once signed in (`details.referralSource` = `SHARED_LINK` / `GUEST_CONFIRMED`, audit
+   `shop_registration_draft.referral_auto_applied`).
+2. **Identity + seller agreement.** The customer login sheet (Terms, e-mail code, mobile code) is the identity step
+   for guests (no separate customer sign-up); a verified customer skips it. Then `V3_AGREEMENT`: the published
+   template text (generic SLA; personalised copy follows go-live), Seller Terms / Terms / Privacy, goods undertaking,
+   the promise to upload or renew licences within `promiseDays` of go-live, and the typed name. Stored on the draft
+   (`early_agreement_*`).
+3. GST / PAN → owner name → 4. fee (flat ₹999 + GST) → 5. shop type → 6. address + pin.
+7. **Live.** "Create my shop and go live": every licence not given is promised (registration_licence_entries
+   LATER / PROMISED, documents_promised_at), the shop is created, the stored acceptance is applied
+   (`applyEarlyRegistrationAcceptance`: REGISTRATION_ACCEPT with the stored name, time and IP; undertaking;
+   `sla_accepted_at`) and the existing `goLiveV2` runs; signed copies e-mailed as before. A document the owner did not
+   see at step 2 (newer version, medical agreement) is still shown on the SLA screen. The shop's address becomes the
+   owner's saved delivery address "Shop" (default only if none).
+8. **Licences after go-live** (`V3_LICENCES`): upload now (My shop → Documents) or later; the existing follow-up
+   (90 days, reminders 1st / 15th, suspension, automatic reactivation) chases them.
+
+**Expired licence at a registration (owner, 28-Nov-2026 ~11.50 IST).** For a v2 / v3 registration not live yet, an
+expired licence no longer blocks: the owner ticks a renewal promise ("<Licence> expired on <date> — renew and upload
+the new one within <N> days or the shop will be paused."); recorded as a PROMISED entry with `expired_on` /
+`renewal_promised_at` + audit `shop_registration_draft.licence_renewal_promised`; the follow-up chases it like a missing
+promised licence (an expired copy on file does not count). Live shops and original-wizard (v1) registrations keep the
+old rule (missing / expired licences block signing). Rollback: `scripts/rollback-0231-shop-onboarding-v3.sql`.
+
+## Go-live rule and escalations (28-Nov-2026 ~12.00 IST, migration 0232)
+
+Owner: "For a shop to go live only these are required: referral code, GST or PAN verified, and the user accepts all
+terms and conditions" (+ the fee paid online, or pay-later approved). Applies to every v2 / v3 registration
+(`flow_version = 'v2'`); the original wizard (v1) and shops already live are unchanged.
+
+- **Not a hold any more** (v2 / v3): missing licences / seller documents other than GSTIN / PAN (promised, the existing
+  90-day follow-up chases them); the owner's mobile / e-mail not dual-verified, and the owner identity check (sign-in
+  rules unchanged; orders still wait for the identity check after its grace period); a GST / PAN name match below
+  `sellerVerification.nameMatchAutoApprove`, a name the source did not return, a PAN that is not the one inside the
+  GSTIN — the number stays VERIFIED and a **review flag** is recorded (`shop_review_flags`, Admin → Shops →
+  Escalations → "To check after go-live"). `sellerVerification.autoApproveShop` does not apply: the instant approval
+  (`gov-auto-approval.ts`) is the v2 rule and is always on.
+- **Still required:** the agreement (accepted at step 2 in v3), GST or PAN verified (a reviewer's verification counts),
+  the fee through the gateway or an approved pay-later.
+- **The only hold:** another owner's shop (not closed / rejected) with the same GSTIN or PAN. The same owner's shops
+  never hold. The held shop gets a `SHOP_REVIEW` escalation.
+
+**Escalation ladder** (`support_escalations`, `support_escalation_events`; rule `supportEscalation`: enabled,
+franchiseeDays 7, adminDays 10, noSalesAfterDays 10). Day 0 the franchisee behind the shop's referral code
+(`payLaterApproverForCode`); no franchisee → the operator queue. Not closed within 7 days of opening → operator queue,
+within 10 → admin team. Each step: the person / queue now responsible is told (in-app + e-mail), the shop owner is
+reminded (in-app + e-mail), the hand-over is written to the events table and the audit log.
+
+| Kind | Opened | Who decides | Closed by |
+|---|---|---|---|
+| `SHOP_REVIEW` | held v2 / v3 shop | franchisee (any level), operator, admin | approve / reject (reason) |
+| `FEE_PAY_LATER` | every pay-later request | franchisee; operator / admin once it left the franchisee (or none) | the pay-later decision |
+| `NO_PRODUCTS_OR_SALES` | v2 / v3 shop live 10 days without a product or a sale | — (task + reminders) | products listed AND a delivered order; staff "Close" with a note |
+
+Screens: Admin / operator → Shops → **Escalations** (`/admin/shops/escalations`, tabs per level, history, actions,
+review flags). Franchisee → Dealer page → **Shops needing help** (`/dealer/escalations`, banner with the count).
+
+Run by the **existing hourly cron entry point** (`/api/cron/hourly` → job `support-escalations`); no new server timer.
+
 ## Defaults — "DEFAULT – confirm with Sanjay"
 
 From the brief's "Defaults chosen":

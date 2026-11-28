@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Alert, Badge, Button, Card, Field, inputClass } from "@/components/ui";
 import { SchemeChooser, type ChooserCharge, type ChooserScheme } from "@/components/dealer/scheme-chooser";
 import { SchemeQuestions } from "@/components/dealer/scheme-questions";
+import { FromShopDetailsCard, type FromShopDetails } from "@/components/dealer/from-shop-details";
 import type { CustomField, CustomValues } from "@/lib/dealer-schemes";
 import { DEALER_DOC_LABELS, DEALER_TYPE_LABELS, DEALER_TYPES, type DealerDocType, type DealerType } from "@/lib/dealers";
 
@@ -50,6 +51,8 @@ interface Props {
     /** Phase 5: the chosen scheme's own questions. */
     questions?: { fields: CustomField[]; values: CustomValues; files: { id: string; fieldKey: string; fileName: string }[] } | null;
   } | null;
+  /** Owner, 28-Nov-2026: the applicant's live shop details — shown read-only and not asked again. */
+  fromShop?: FromShopDetails | null;
 }
 
 /** Documents that can be checked online instead of uploaded, and what the check uses. */
@@ -67,21 +70,31 @@ const EDITABLE = ["DRAFT", "REJECTED"];
  * agreement and submit. PAN and the account number are typed in again only
  * when they change — the saved ones are shown masked.
  */
-export function DealerApplication({ dealer, requirements, areas, agreementVersion, smsAvailable, workZone = null, bankCheckAvailable = false, scheme = null }: Props) {
+export function DealerApplication({ dealer, requirements, areas, agreementVersion, smsAvailable, workZone = null, bankCheckAvailable = false, scheme = null, fromShop = null }: Props) {
   const router = useRouter();
   const editable = !dealer || EDITABLE.includes(dealer.status);
+  // What the shop already holds is shown read-only ("from your shop") and filled in on the server.
+  const shop = editable ? fromShop : null;
+  const fromShopHas = {
+    names: !!shop,
+    mobile: !!shop?.mobileMasked,
+    pan: !!shop?.panMasked,
+    gstin: !!shop?.gstin,
+    address: !!(shop?.address.line1 && shop.address.city && shop.address.pincode),
+    bank: !!shop?.bank,
+  };
   const [form, setForm] = useState({
-    legalName: dealer?.legalName ?? "",
-    contactName: dealer?.contactName ?? "",
-    dealerType: (dealer?.dealerType ?? "PROPRIETORSHIP") as DealerType,
+    legalName: dealer?.legalName ?? shop?.legalName ?? "",
+    contactName: dealer?.contactName ?? shop?.contactName ?? "",
+    dealerType: (dealer?.dealerType ?? (shop ? (shop.gstin ? "PROPRIETORSHIP" : "INDIVIDUAL") : "PROPRIETORSHIP")) as DealerType,
     mobile: "",
     pan: "",
-    gstin: dealer?.gstin ?? "",
+    gstin: dealer?.gstin ?? shop?.gstin ?? "",
     shopActNumber: dealer?.shopActNumber ?? "",
-    addressLine1: dealer?.address.line1 ?? "",
+    addressLine1: dealer?.address.line1 ?? shop?.address.line1 ?? "",
     addressLine2: dealer?.address.line2 ?? "",
-    city: dealer?.address.city ?? "",
-    pincode: dealer?.address.pincode ?? "",
+    city: dealer?.address.city ?? shop?.address.city ?? "",
+    pincode: dealer?.address.pincode ?? shop?.address.pincode ?? "",
     bankHolderName: dealer?.bank.holderName ?? "",
     bankAccountNumber: "",
     bankIfsc: dealer?.bank.ifsc ?? "",
@@ -120,7 +133,7 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
   }
 
   async function save() {
-    const needsMobile = !dealer?.mobileMasked || form.mobile.trim() !== "";
+    const needsMobile = (!dealer?.mobileMasked && !fromShopHas.mobile) || form.mobile.trim() !== "";
     if (needsMobile && !form.mobile.trim()) return setError("Enter your mobile number.");
     const body = {
       legalName: form.legalName,
@@ -136,7 +149,7 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
       pincode: form.pincode,
       territories,
       ...(workZone ? { preferredZoneId: workZone.id } : {}),
-      bank: form.bankAccountNumber.trim()
+      bank: form.bankAccountNumber.trim() && !fromShopHas.bank
         ? { holderName: form.bankHolderName, accountNumber: form.bankAccountNumber, ifsc: form.bankIfsc }
         : null,
     };
@@ -209,15 +222,21 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
         </Card>
       ) : null}
 
+      {shop ? <FromShopDetailsCard details={shop} /> : null}
+
       <Card className="space-y-3 p-4">
         <h2 className="text-base font-bold text-ink-900">1. Your business</h2>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Legal / business name">
-            <input className={inputClass} value={form.legalName} onChange={set("legalName")} disabled={!editable} maxLength={120} />
-          </Field>
-          <Field label="Owner / representative name">
-            <input className={inputClass} value={form.contactName} onChange={set("contactName")} disabled={!editable} maxLength={120} />
-          </Field>
+          {fromShopHas.names ? null : (
+            <>
+              <Field label="Legal / business name">
+                <input className={inputClass} value={form.legalName} onChange={set("legalName")} disabled={!editable} maxLength={120} />
+              </Field>
+              <Field label="Owner / representative name">
+                <input className={inputClass} value={form.contactName} onChange={set("contactName")} disabled={!editable} maxLength={120} />
+              </Field>
+            </>
+          )}
           <Field label="Dealer type" hint="The documents you need depend on it.">
             <select className={inputClass} value={form.dealerType} onChange={set("dealerType")} disabled={!editable}>
               {DEALER_TYPES.map((t) => (
@@ -227,30 +246,40 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
               ))}
             </select>
           </Field>
-          <Field label="Mobile number" hint={dealer?.mobileMasked ? `Saved: ${dealer.mobileMasked}. Type a new one only to change it.` : "10 digits."}>
-            <input className={inputClass} inputMode="numeric" value={form.mobile} onChange={set("mobile")} disabled={!editable} maxLength={14} />
-          </Field>
-          <Field label="PAN" hint={dealer?.panMasked ? `Saved: ${dealer.panMasked}. Type it again only to change it.` : "e.g. ABCDE1234F"}>
-            <input className={inputClass} value={form.pan} onChange={set("pan")} disabled={!editable} maxLength={10} autoComplete="off" />
-          </Field>
-          <Field label="GSTIN (if registered)">
-            <input className={inputClass} value={form.gstin} onChange={set("gstin")} disabled={!editable} maxLength={15} />
-          </Field>
+          {fromShopHas.mobile ? null : (
+            <Field label="Mobile number" hint={dealer?.mobileMasked ? `Saved: ${dealer.mobileMasked}. Type a new one only to change it.` : "10 digits."}>
+              <input className={inputClass} inputMode="numeric" value={form.mobile} onChange={set("mobile")} disabled={!editable} maxLength={14} />
+            </Field>
+          )}
+          {fromShopHas.pan ? null : (
+            <Field label="PAN" hint={dealer?.panMasked ? `Saved: ${dealer.panMasked}. Type it again only to change it.` : "e.g. ABCDE1234F"}>
+              <input className={inputClass} value={form.pan} onChange={set("pan")} disabled={!editable} maxLength={10} autoComplete="off" />
+            </Field>
+          )}
+          {fromShopHas.gstin ? null : (
+            <Field label="GSTIN (if registered)">
+              <input className={inputClass} value={form.gstin} onChange={set("gstin")} disabled={!editable} maxLength={15} />
+            </Field>
+          )}
           <Field label="Shop & Establishment number (if any)">
             <input className={inputClass} value={form.shopActNumber} onChange={set("shopActNumber")} disabled={!editable} maxLength={60} />
           </Field>
-          <Field label="Registered address">
-            <input className={inputClass} value={form.addressLine1} onChange={set("addressLine1")} disabled={!editable} maxLength={200} />
-          </Field>
-          <Field label="Address line 2 (optional)">
-            <input className={inputClass} value={form.addressLine2} onChange={set("addressLine2")} disabled={!editable} maxLength={200} />
-          </Field>
-          <Field label="City">
-            <input className={inputClass} value={form.city} onChange={set("city")} disabled={!editable} maxLength={80} />
-          </Field>
-          <Field label="PIN code">
-            <input className={inputClass} inputMode="numeric" value={form.pincode} onChange={set("pincode")} disabled={!editable} maxLength={6} />
-          </Field>
+          {fromShopHas.address ? null : (
+            <>
+              <Field label="Registered address">
+                <input className={inputClass} value={form.addressLine1} onChange={set("addressLine1")} disabled={!editable} maxLength={200} />
+              </Field>
+              <Field label="Address line 2 (optional)">
+                <input className={inputClass} value={form.addressLine2} onChange={set("addressLine2")} disabled={!editable} maxLength={200} />
+              </Field>
+              <Field label="City">
+                <input className={inputClass} value={form.city} onChange={set("city")} disabled={!editable} maxLength={80} />
+              </Field>
+              <Field label="PIN code">
+                <input className={inputClass} inputMode="numeric" value={form.pincode} onChange={set("pincode")} disabled={!editable} maxLength={6} />
+              </Field>
+            </>
+          )}
         </div>
 
         {ownedZones.length ? (
@@ -318,6 +347,11 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
             {dealer.bank.reason ? `: ${dealer.bank.reason}` : ""}
           </p>
         ) : null}
+        {fromShopHas.bank && shop?.bank ? (
+          <p className="text-sm text-ink-700" data-testid="dealer-bank-from-shop">
+            Your shop&apos;s verified payout account {shop.bank.accountMasked} ({shop.bank.ifsc}) is used — from your shop, already verified by the bank.
+          </p>
+        ) : (
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Account holder">
             <input className={inputClass} value={form.bankHolderName} onChange={set("bankHolderName")} disabled={!editable} maxLength={120} />
@@ -329,6 +363,7 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
             <input className={inputClass} value={form.bankIfsc} onChange={set("bankIfsc")} disabled={!editable} maxLength={11} />
           </Field>
         </div>
+        )}
         {editable ? (
           <Button onClick={save} disabled={busy !== null}>
             {busy === "save" ? "Saving…" : "Save details"}

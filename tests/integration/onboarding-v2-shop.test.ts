@@ -143,6 +143,8 @@ beforeEach(async () => {
   const a = await createUser({ role: "ADMIN" });
   admin = { id: a.id, role: "ADMIN" };
   await setV2(true);
+  // These cases cover the v2 order (drafts started before 28-Nov-2026); the v3 order is onboarding-v3-shop.test.ts.
+  await setRule("onboardingV2", { shopRegistrationOrder: "v2" }, admin);
   owner = await verifiedCustomer();
 });
 afterEach(() => {
@@ -253,10 +255,10 @@ describe("step 1: identity", () => {
     await startV2Draft(who);
     await acceptV2Terms(who, { accept: true });
 
-    await setRule("onboardingV2", { mobileOtpFallbackWhenNoSms: false }, admin);
+    await setRule("onboardingV2", { mobileOtpFallbackWhenNoSms: false, shopRegistrationOrder: "v2" }, admin);
     await expect(requestV2MobileCode(who, { mobile: "9876501234" })).rejects.toMatchObject({ details: { reason: "SMS_UNAVAILABLE" } });
 
-    await setRule("onboardingV2", { mobileOtpFallbackWhenNoSms: true }, admin);
+    await setRule("onboardingV2", { mobileOtpFallbackWhenNoSms: true, shopRegistrationOrder: "v2" }, admin);
     const saved = await requestV2MobileCode(who, { mobile: "9876501234" });
     expect(saved.sent).toBe(false);
     expect(saved.view.v2?.identity).toMatchObject({ mobileSavedUnverified: true, mobileVerified: false, done: true });

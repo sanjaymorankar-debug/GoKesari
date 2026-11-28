@@ -9,6 +9,7 @@ import "@/server/rbac-accounting/bank-reconciliation"; // Phase 3 handler: BANK_
 import "@/server/rbac-support/change-requests"; // Phase 5 handlers: SHOP_CHANGE, MASTER_DATA_CORRECTION
 import "@/server/rbac-support/documents"; // documents: DOCUMENT_DELETE (two admins)
 import "./dealer-platform"; // docs/dealer-platform: scheme publish / status, dealer scheme change, franchise refund
+import "./dealer-promotion"; // owner 28-Nov-2026: a shop owner's promotion to dealer, confirmed by a second admin / operator
 
 export * from "./engine";
 export {

@@ -4,6 +4,8 @@ import { z } from "zod";
 
 import { DealerAdminDetail } from "@/components/dealer/dealer-admin-detail";
 import { DealerCommissionRates } from "@/components/dealer/dealer-commission-rates";
+import { PromotionConfirmations } from "@/components/dealer/promotion-confirmations";
+import { isShopOwnerPromotion, pendingPromotionFor, PROMOTION_CONFIRMER_ROLES } from "@/server/dealers/promotion";
 import { SuperFranchiseeAdmin } from "@/components/dealer/super-franchisee-admin";
 import { SchemeTermsPanel } from "@/components/dealer/scheme-terms";
 import { Badge, Card, PageHeader } from "@/components/ui";
@@ -47,6 +49,8 @@ export default async function AdminDealerPage({ params }: { params: Promise<{ id
     dealerSchemeHistory(dealer.id),
   ]);
   const scheme = schemes.find((h) => h.status === "ACTIVE") ?? null;
+  // Owner, 28-Nov-2026: a shop owner's promotion is approved by one admin and confirmed by a different admin / operator.
+  const [promotion, pendingPromotion] = dealer.status === "PENDING" ? await Promise.all([isShopOwnerPromotion(dealer), pendingPromotionFor(dealer.id)]) : [false, null];
   // 0226 super franchisee: his team, or the team he is in (not for GoKesari's own dealer account).
   const superView = dealer.isInternal ? null : await superFranchiseeView(dealer.id);
   // Phase 5: his answers to the scheme's own questions (fields marked for reports).
@@ -61,8 +65,12 @@ export default async function AdminDealerPage({ params }: { params: Promise<{ id
         ← Dealers
       </Link>
       <PageHeader title={dealer.legalName} description={`${dealer.contactName}${email ? ` · ${email}` : ""}`} />
+      {pendingPromotion ? (
+        <PromotionConfirmations items={[pendingPromotion]} viewerId={user.id} canDecide={PROMOTION_CONFIRMER_ROLES.includes(user.role)} showDealerLink={false} />
+      ) : null}
       <DealerAdminDetail
         isAdmin={user.role === "ADMIN"}
+        promotion={{ fourEye: promotion, pending: !!pendingPromotion }}
         dealer={JSON.parse(JSON.stringify(view))}
         employees={JSON.parse(JSON.stringify(employees))}
         today={new Date().toISOString().slice(0, 10)}

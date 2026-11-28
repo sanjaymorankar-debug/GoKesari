@@ -303,7 +303,8 @@ export async function sendTeamReports(kind: Exclude<ReportPeriodKind, "MONTH">, 
   let sent = 0;
   const summary: { label: string; value: string }[] = [];
   const all = { started: 0, registered: 0 };
-  const send = async (userId: string, report: TeamReport, scope: string) => {
+  const { shopLines, shopsInPeriod, superTeamLines } = await import("./report-extras");
+  const send = async (userId: string, report: TeamReport, scope: string, extra: { label: string; value: string }[] = []) => {
     await notify({
       userId,
       type: NOTIFICATION_TYPES.DEALER_TEAM_REPORT,
@@ -316,7 +317,7 @@ export async function sendTeamReports(kind: Exclude<ReportPeriodKind, "MONTH">, 
       },
       actionUrl: "/dealer#team-performance",
       channels: ["EMAIL"],
-      emailDetail: reportLines(report),
+      emailDetail: [...reportLines(report), ...extra],
       dedupeKey: `dealer-team-report:${kind}:${period.fromDate}:${scope}:${userId}`,
     });
     sent += 1;
@@ -324,11 +325,15 @@ export async function sendTeamReports(kind: Exclude<ReportPeriodKind, "MONTH">, 
   const active = (r: TeamReport) => r.totals.started + r.totals.registered > 0 || r.totals.commissionPaise !== 0;
   for (const dealer of list) {
     const report = await teamReport(dealer.id, period);
-    if (!active(report)) continue;
+    // Owner, 27-Nov-2026: the dealer's e-mail names the shops (any commission model), and a super franchisee (0226)
+    // also gets his team's numbers — so he is sent one when only his team was busy.
+    const ownShops = await shopsInPeriod([dealer.id], period.from, period.to);
+    const team = await superTeamLines(dealer.id, period.from, period.to);
+    if (!active(report) && !ownShops.length && !team.active) continue;
     all.started += report.totals.started;
     all.registered += report.totals.registered;
     summary.push({ label: dealer.legalName, value: `${report.totals.started} started, ${report.totals.registered} registered, ${inr(report.totals.commissionPaise)}` });
-    if (dealer.userId) await send(dealer.userId, report, dealer.legalName);
+    if (dealer.userId) await send(dealer.userId, report, dealer.legalName, [...shopLines(ownShops), ...team.lines]);
     const leads = await db.select().from(dealerSalespeople).where(and(eq(dealerSalespeople.dealerId, dealer.id), eq(dealerSalespeople.teamRole, "TEAM_LEAD"), eq(dealerSalespeople.status, "ACTIVE")));
     for (const lead of leads) {
       if (!lead.userId) continue;

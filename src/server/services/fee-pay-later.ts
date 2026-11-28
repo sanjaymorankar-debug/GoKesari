@@ -38,6 +38,7 @@ import {
   shopPayments,
   shopRegistrationDrafts,
   shops,
+  supportEscalations,
   users,
   type Shop,
   type ShopFeePayLater,
@@ -206,6 +207,10 @@ export async function createPayLaterRequest(
  * shop used, else the administrators. Never throws.
  */
 export async function tellAdminsOfPayLaterRequest(request: ShopFeePayLater, shopName: string): Promise<void> {
+  // 0232: the request starts its support escalation (franchisee → operators in 7 days → admins in 10).
+  await (await import("./support-escalations"))
+    .openPayLaterEscalation(request, shopName)
+    .catch((error: unknown) => console.error("[fee-pay-later] escalation not opened (the hourly job retries)", request.id, error));
   try {
     const [owner] = await db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, request.ownerId));
     if (request.approverUserId && (await dealerStillDecides(request))) {
@@ -251,10 +256,18 @@ export async function requestShopFeePayLater(shopId: string, owner: { id: string
 
 /** The v2 draft became its shop: its pay-later request now belongs to the shop (idempotent). */
 export async function linkPayLaterToShop(draftId: string, shopId: string, client: DbClient = db): Promise<void> {
-  await client
+  const linked = await client
     .update(shopFeePayLater)
     .set({ shopId, updatedAt: new Date() })
-    .where(and(eq(shopFeePayLater.draftId, draftId), isNull(shopFeePayLater.shopId)));
+    .where(and(eq(shopFeePayLater.draftId, draftId), isNull(shopFeePayLater.shopId)))
+    .returning({ id: shopFeePayLater.id });
+  // 0232: the request's escalation now names the shop too (the escalation screens link to it).
+  if (linked.length) {
+    await client
+      .update(supportEscalations)
+      .set({ shopId, updatedAt: new Date() })
+      .where(and(eq(supportEscalations.kind, "FEE_PAY_LATER"), inArray(supportEscalations.subjectId, linked.map((r) => r.id)), isNull(supportEscalations.shopId)));
+  }
 }
 
 /* ============================================================ decision */
@@ -264,10 +277,21 @@ export async function linkPayLaterToShop(draftId: string, shopId: string, client
  * decide only requests with no such dealer, or whose dealer is no longer active.
  */
 async function assertCanDecide(request: ShopFeePayLater, actor: PayLaterActor, client: DbClient): Promise<void> {
-  if (await dealerStillDecides(request, client)) {
-    if (actor.id !== request.approverUserId) throw forbidden(`This request is decided by the dealer whose code the shop used (${request.referralCode ?? "their code"}).`);
-    return;
+  // 0232 (owner, 28-Nov-2026): "same will be applicable for deferred payment" — once the request has left the
+  // franchisee (7 days → operator queue, 10 days → admin team; or no franchisee at all, which starts with the
+  // operators), an operator or admin decides it too. The franchisee keeps deciding while it is escalated (DEFAULT –
+  // confirm with Sanjay).
+  const dealerDecides = await dealerStillDecides(request, client);
+  if (dealerDecides && actor.id === request.approverUserId) return;
+  if ((actor.role === "OPERATOR" || actor.role === "ADMIN") && can(actor.role, PERMISSIONS.SHOP_APPROVE)) {
+    const [escalation] = await client
+      .select({ level: supportEscalations.level })
+      .from(supportEscalations)
+      .where(and(eq(supportEscalations.kind, "FEE_PAY_LATER"), eq(supportEscalations.subjectId, request.id), isNull(supportEscalations.resolvedAt)))
+      .limit(1);
+    if (escalation && escalation.level !== "FRANCHISEE") return;
   }
+  if (dealerDecides) throw forbidden(`This request is decided by the dealer whose code the shop used (${request.referralCode ?? "their code"}).`);
   if (!can(actor.role, PERMISSIONS.REGISTRATION_FEE_MANAGE)) throw forbidden("Only an administrator decides this pay-later request.");
 }
 
@@ -324,6 +348,8 @@ export async function decidePayLater(
       },
       tx,
     );
+    // 0232: the request's support escalation (if any) is closed with the decision.
+    await (await import("./support-escalations")).resolveEscalationFor("FEE_PAY_LATER", row.id, decision === "APPROVE" ? "APPROVED" : "REJECTED", actor, reason, tx, now);
     return updated;
   });
 

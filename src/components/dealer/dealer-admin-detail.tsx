@@ -71,8 +71,11 @@ export function DealerAdminDetail({
   employees,
   today,
   rating,
+  promotion = { fourEye: false, pending: false },
 }: {
   isAdmin: boolean;
+  /** Owner, 28-Nov-2026: a shop owner's promotion — the Approve waits for a different admin or operator to confirm. */
+  promotion?: { fourEye: boolean; pending: boolean };
   dealer: Dealer;
   employees: Employee[];
   today: string;
@@ -122,7 +125,7 @@ export function DealerAdminDetail({
       `/api/admin/dealers/${dealer.id}/decision`,
       action === "APPROVE" ? { action, agreementStart: start, agreementEnd: end, mobileConfirmedByCall: byCall, bankVerifiedByDocument: bankByDoc } : { action, reason },
       `decide-${action}`,
-      `Done: ${action.toLowerCase()}.`,
+      action === "APPROVE" && promotion.fourEye ? "Sent for confirmation: a different admin or operator must confirm it before the dealer code is issued." : `Done: ${action.toLowerCase()}.`,
     );
 
   return (
@@ -353,7 +356,7 @@ export function DealerAdminDetail({
             <div className="space-y-2">
               {dealer.source === "SHOP_REQUEST" ? (
                 <Alert tone="info">
-                  Free franchisee request from a live GoKesari shop (owner rule, 27-Nov-2026). It is approved on the shop&apos;s verified details: no documents, mobile call or bank check needed now — PAN and the payout bank are asked before his first payout. Approval issues the dealer code and e-mails it to him.
+                  Free franchisee request from a live GoKesari shop (owner rule, 27-Nov-2026). It is approved on the shop&apos;s verified details: no documents, mobile call or bank check needed now — PAN and the payout bank are asked before his first payout. Once a second admin or operator confirms the approval, the dealer code is issued and e-mailed to him.
                 </Alert>
               ) : null}
               <div className="grid gap-3 sm:grid-cols-2">
@@ -374,9 +377,18 @@ export function DealerAdminDetail({
                   <input type="checkbox" checked={bankByDoc} onChange={(e) => setBankByDoc(e.target.checked)} />I checked the account against the accepted cancelled cheque / bank proof.
                 </label>
               ) : null}
-              <Button disabled={busy !== null} onClick={() => decide("APPROVE")}>
-                Approve and issue the code
-              </Button>
+              {promotion.fourEye ? (
+                <Alert tone="info">
+                  A shop owner&apos;s promotion (owner rule, 28-Nov-2026): your approval goes to a different admin or operator, who confirms it. Only then the dealer code is issued and e-mailed.
+                </Alert>
+              ) : null}
+              {promotion.pending ? (
+                <p className="text-sm font-semibold text-ink-900" data-testid="dealer-promotion-waiting">Approved — waiting for a second admin or operator to confirm (see above).</p>
+              ) : (
+                <Button disabled={busy !== null} onClick={() => decide("APPROVE")}>
+                  {promotion.fourEye ? "Approve (a second admin or operator confirms)" : "Approve and issue the code"}
+                </Button>
+              )}
             </div>
           ) : null}
           {["PENDING", "APPROVED", "SUSPENDED"].includes(dealer.status) ? (

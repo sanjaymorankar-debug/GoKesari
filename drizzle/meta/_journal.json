@@ -1611,6 +1611,27 @@
       "when": 1793272900000,
       "tag": "0229_fee_pay_later",
       "breakpoints": true
+    },
+    {
+      "idx": 230,
+      "version": "7",
+      "when": 1793273000000,
+      "tag": "0230_flat_registration_fee_999",
+      "breakpoints": true
+    },
+    {
+      "idx": 231,
+      "version": "7",
+      "when": 1793273100000,
+      "tag": "0231_shop_onboarding_v3",
+      "breakpoints": true
+    },
+    {
+      "idx": 232,
+      "version": "7",
+      "when": 1793273200000,
+      "tag": "0232_shop_golive_escalations",
+      "breakpoints": true
     }
   ]
 }

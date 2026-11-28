@@ -156,6 +156,12 @@ export interface V2View {
   promiseDueLabel: string;
   sla: { accepted: boolean; acceptedAtIst: string | null; agreementsEnabled: boolean; agreementsRequired: boolean };
   returnTo: string | null;
+  /** 0231 (owner, 28-Nov-2026): "v3" — referral → identity → agreement → GST / PAN → fee → type → address + pin → live → licences. */
+  order: "v2" | "v3";
+  /** v3 only: the seller agreement accepted at step 2 (template text), applied when the shop is created. */
+  early: import("./early-agreement").EarlyAgreementView | null;
+  /** v3 only, after go-live: the licences screen (upload now on My shop → Documents, or later). */
+  postLive: { licencesAnswered: boolean; documentsUrl: string | null; promisedLicences: { key: string; label: string }[] } | null;
   /**
    * docs/flows-v3/wave3.md (flag flow_f4): the optional WhatsApp number and payment QR offered on the agreement step,
    * once the shop row exists. Absent / null: not asked.
@@ -246,6 +252,7 @@ export interface V2ViewInput {
 /** The v2 part of the wizard's view. Marks the identity step done (identity_verified_at) the first time it is. */
 export async function v2ViewOf(draft: ShopRegistrationDraft, input: V2ViewInput): Promise<V2View> {
   const extra = v2Details(draft);
+  const v3 = draft.flowVersion === "v2" && draft.flowOrder === "v3";
   const rule = await getRule("onboardingV2");
   const [owner] = await db
     .select({ email: users.email, emailVerified: users.emailVerified, emailPlaceholder: users.emailPlaceholder, phoneE164: users.phoneE164, phoneVerifiedAt: users.phoneVerifiedAt })
@@ -357,6 +364,15 @@ export async function v2ViewOf(draft: ShopRegistrationDraft, input: V2ViewInput)
       agreementsRequired: input.agreementsRequired,
     },
     returnTo: safeReturnPath(extra.v2ReturnTo),
+    order: v3 ? "v3" : "v2",
+    early: v3 ? await (await import("./early-agreement")).earlyAgreementView(draft) : null,
+    postLive: v3
+      ? {
+          licencesAnswered: (draft.details as Record<string, unknown> | null)?.v3LicencesAnswered === true,
+          documentsUrl: draft.shopId ? `/shop/documents?shop=${draft.shopId}` : null,
+          promisedLicences: licences.filter((l) => l.entry?.status === "PROMISED" || !l.entry).map((l) => ({ key: l.key, label: l.label })),
+        }
+      : null,
     contact: draft.shopId && draft.slaAcceptedAt === null ? await (await import("@/server/flows/f4-onboarding")).registrationContactView(draft.shopId) : null,
   };
 }

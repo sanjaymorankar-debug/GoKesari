@@ -426,8 +426,16 @@ export const RULES = {
        * shop is told. 0 = never.
        */
       addressPendingAutoCancelHours: int(0, 72),
+      /**
+       * Owner, 28-Nov-2026: the order a NEW shop registration follows while onboarding_v2 is on — "v3" (referral →
+       * identity → seller agreement → GST / PAN → fee → type → address + pin → live → licences after go-live) or "v2"
+       * (the order before). Drafts already started keep theirs.
+       * DEFAULT – confirm with Sanjay: a switch back to "v2" is kept as a safety valve; default "v3".
+       */
+      shopRegistrationOrder: z.enum(["v2", "v3"]),
     }),
     defaults: {
+      shopRegistrationOrder: "v3",
       baseDeliveryFeePaise: 3_000,
       teamLeadsCanAddAgents: true,
       teamInviteExpiryDays: 7,
@@ -685,6 +693,20 @@ export const RULES = {
       paymentDueDays: 1,
       scheduleHorizonDays: 7,
     },
+  },
+  supportEscalation: {
+    description:
+      "Support escalation ladder (owner, 28-Nov-2026; 0232). A held onboarding-v2 / v3 shop (another owner's shop has the same GSTIN or PAN), a pay-later request waiting for a decision, and a v2 / v3 shop live for noSalesAfterDays with no product listed or no sale yet go first to the franchisee behind the shop's referral code (the code's free dealer / franchisee, or the franchisee above a team member). Not closed within franchiseeDays it moves to the operator queue, within adminDays (counted from the day it opened) to the admin team. Each step tells whoever now has it (in-app + e-mail) and reminds the shop owner; every hand-over is audited. A shop with no franchisee starts with the operators. Run by the hourly job.",
+    schema: z.object({
+      enabled: z.boolean(),
+      /** Owner: "if he did not act within 1 week it should be escalated to operator". */
+      franchiseeDays: int(1, 60),
+      /** Owner: "in 10 days it should be escalated to admin team" (from the day it opened). */
+      adminDays: int(1, 90),
+      /** Owner: "if shop did not upload product list and start selling in 10 days" (from go-live). */
+      noSalesAfterDays: int(1, 90),
+    }),
+    defaults: { enabled: true, franchiseeDays: 7, adminDays: 10, noSalesAfterDays: 10 },
   },
   shopDocumentFollowUp: {
     description:
@@ -1234,7 +1256,7 @@ export const RULES = {
   },
   registrationFeeByTurnover: {
     description:
-      "One-time shop registration fee on Add my shop (/shop/register), by the annual turnover the owner declares, in slabs (src/lib/registration-fee.ts): slabs is a list of { upToRupees, feePaise } — turnover up to a slab's upToRupees pays its feePaise; the last slab has upToRupees null and covers everything above. An admin adds or removes slabs (up to 20) in Admin → Registration fees → Fee by turnover. Fees are before GST (added at the PLATFORM_FEE_GST rate). enabled: off → the flat registration fee schedule (Admin → Registration fee) applies instead. Each shop keeps the fee it registered with; a change here never alters it. A value saved in the older three-slab form (slab1UpToRupees … slab3FeePaise) is read as the same three slabs.",
+      "One-time shop registration fee on Add my shop (/shop/register), by the annual turnover the owner declares, in slabs (src/lib/registration-fee.ts): slabs is a list of { upToRupees, feePaise } — turnover up to a slab's upToRupees pays its feePaise; the last slab has upToRupees null and covers everything above. An admin adds or removes slabs (up to 20) in Admin → Registration fees → Fee by turnover. Fees are before GST (added at the PLATFORM_FEE_GST rate). enabled: off (the default since 28-Nov-2026) → the flat registration fee schedule (Admin → Registration fee, ₹999 + GST) applies instead. enabled is switched only with the four-eye Turnover slabs button in Admin → Registration fees (an admin or operator asks, a different admin or operator approves); saving the slabs here never changes it. Each shop keeps the fee it registered with; a change here never alters it. A value saved in the older three-slab form (slab1UpToRupees … slab3FeePaise) is read as the same three slabs.",
     schema: z.preprocess(
       upgradeLegacyTurnoverRule,
       z
@@ -1250,10 +1272,14 @@ export const RULES = {
           if (problem) ctx.addIssue({ code: "custom", message: problem, path: ["slabs"] });
         }),
     ),
-    // Owner, 28 Oct 2026: on — up to ₹2 crore, up to ₹10 crore, above ₹10 crore.
-    // The fees are starting values; the admin sets them, and adds slabs, in Admin → Registration fees.
+    // Owner, 28 Oct 2026: up to ₹2 crore, up to ₹10 crore, above ₹10 crore. The fees are starting values; the admin
+    // sets them, and adds slabs, in Admin → Registration fees.
+    // Owner, 28-Nov-2026: "Remove turnover slab itself and create a button to switch it on or off by admin / operator
+    // with four-eye principle for later enablement" and "fee should be flat 999 as default fee" — off by default (the
+    // flat fee, ₹999 from migration 0230); the slabs are kept for when it is switched on again
+    // (src/server/services/turnover-fee-switch.ts).
     defaults: {
-      enabled: true,
+      enabled: false,
       slabs: DEFAULT_TURNOVER_SLABS,
     },
   },

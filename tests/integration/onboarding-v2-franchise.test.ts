@@ -85,6 +85,21 @@ beforeEach(async () => {
 
 /* ================================================================ helpers */
 
+/**
+ * Owner, 28-Nov-2026: a free franchisee request is approved by an admin and confirmed by a different admin or operator
+ * (src/server/dealers/promotion.ts) — only then the GKD code is issued.
+ */
+async function approveFreeRequest(dealerId: string): Promise<{ code: string | null }> {
+  const { proposeDealerPromotion } = await import("@/server/dealers/promotion");
+  const { decideApproval } = await import("@/server/approvals");
+  const proposed = await proposeDealerPromotion(dealerId, { action: "APPROVE", agreementStart: "2026-11-27", agreementEnd: "2027-11-26" }, admin);
+  const second = await createUser({ role: "ADMIN" });
+  const decided = await decideApproval({ requestId: proposed.approvalId, actor: { id: second.id, role: "ADMIN" }, decision: "APPROVE" });
+  if (!decided.applied) throw new Error(decided.applyError ?? "not applied");
+  const { listDealerCodes } = await import("@/server/dealers/codes");
+  return { code: (await listDealerCodes(dealerId)).find((c) => c.kind === "DEALER" && c.status === "ACTIVE")?.code ?? null };
+}
+
 const pan = () => `ABCDE${String(Math.floor(1000 + Math.random() * 8999))}F`;
 
 /** A signed-in customer with a live (approved) shop; GSTIN and PAN on the shop when asked. */
@@ -152,8 +167,7 @@ describe("a live registered shop is mandatory", () => {
 /* ================================================================ free dealer */
 
 describe("free franchisee: a request an admin approves, then a GKD code (owner, 27-Nov-2026)", () => {
-  const approve = async (dealerId: string) =>
-    (await import("@/server/dealers/service")).decideDealer(dealerId, { action: "APPROVE", agreementStart: "2026-11-27", agreementEnd: "2027-11-26" }, admin);
+  const approve = (dealerId: string) => approveFreeRequest(dealerId);
 
   it("the request waits (PENDING, no code, no DEALER role); an admin approves it on the shop's details: code, role, history, notice", async () => {
     const o = await shopOwner({ withPan: true });
@@ -250,7 +264,7 @@ describe("paid franchise: zones + plan + coupon + payment → live at payment", 
   it("a free dealer upgrading keeps his GKD code and gets the GKF code at payment", async () => {
     const o = await shopOwner();
     const free = await becomeFreeDealer(o.actor);
-    free.code = (await (await import("@/server/dealers/service")).decideDealer(free.dealerId, { action: "APPROVE", agreementStart: "2026-11-27", agreementEnd: "2027-11-26" }, admin)).code;
+    free.code = (await approveFreeRequest(free.dealerId)).code;
     await startPaidFranchise(o.actor);
     await acceptFranchiseAgreement(o.actor, FRANCHISE_AGREEMENT_V2_VERSION, { ipAddress: null, userAgent: null });
     const r = await reserveZones(o.actor, { zoneIds: [Z7], planId: (await launchPlan()).id });

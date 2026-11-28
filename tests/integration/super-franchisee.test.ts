@@ -12,7 +12,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
-import { dealerCommissionLedger, dealerCommissionMonths, dealers, orders, sellerVerifications, shopAttributions, shops, superFranchiseeMembers, superFranchisees } from "@/server/db/schema";
+import { dealerCodes, dealerCommissionLedger, dealerCommissionMonths, dealers, notifications, referralCodes, orders, sellerVerifications, shopAttributions, shops, superFranchiseeMembers, superFranchisees } from "@/server/db/schema";
 import { reverseShopCommission, setCommissionSettings } from "@/server/dealers/commission";
 import {
   accrueSuperFranchiseeMonth,
@@ -207,4 +207,81 @@ describe("super franchisee", () => {
     await expect(assignToSuperFranchisee(deepak.id, sanjay.id, { reason: "not allowed" }, admin)).rejects.toThrow(/super franchisee/i);
     await expect(assignToSuperFranchisee(deepak.id, deepak.id, { reason: "not allowed" }, admin)).rejects.toThrow(/own team/i);
   });
+
+  it("reports: the team and its shops by name; the monthly report once, on the 1st, for last month; the super hears of a new team shop", async () => {
+    const { previousMonth, sendMonthlyReports, superTeamLines } = await import("@/server/dealers/report-extras");
+    expect(previousMonth(new Date("2026-12-01T00:00:00Z")).month).toBe("2026-11"); // 05:30 IST, 1 Dec
+    expect(previousMonth(new Date("2027-01-01T00:00:00Z")).month).toBe("2026-12");
+
+    const deepak = await dealer("Deepak");
+    const dolke = await dealer("Dolke");
+    await promoteSuperFranchisee(deepak.id, { reason: "owner decision" }, admin);
+    await assignToSuperFranchisee(deepak.id, dolke.id, { reason: "his reference" }, admin);
+    const shop = await signedShop(dolke.id, 100_000);
+    const from = new Date(Date.now() - 86_400_000);
+    const to = new Date(Date.now() + 60_000);
+    const team = await superTeamLines(deepak.id, from, to);
+    expect(team.active).toBe(true);
+    expect(team.lines.map((l) => `${l.label}|${l.value}`).join("\n")).toMatch(/Team: Dolke\|1 shops live/);
+    expect(team.lines.some((l) => l.value.startsWith(shop.name))).toBe(true);
+    expect(team.lines.find((l) => l.label === "Your super franchisee share")?.value).toBe("₹30.00");
+
+    // The 1st of next month (IST), 05:00 IST: the report for this month.
+    const ist = new Date(Date.now() + 330 * 60_000);
+    const first = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth() + 1, 1) - 30 * 60_000); // 23:30 UTC = 05:00 IST on the 1st
+    expect(await sendMonthlyReports(new Date(first.getTime() + 2 * 86_400_000))).toEqual({ skipped: "not the 1st" });
+    expect(await sendMonthlyReports(first)).toMatchObject({ sent: 2 });
+    const rows = await db.select().from(notifications).where(and(eq(notifications.type, "dealer.team_report"), eq(notifications.channel, "IN_APP")));
+    expect(rows.find((n) => n.userId === dolke.userId)?.title).toMatch(/^Monthly team report: 1 registered, ₹/);
+    await sendMonthlyReports(first); // a re-run sends nothing new
+    expect(await db.select().from(notifications).where(and(eq(notifications.type, "dealer.team_report"), eq(notifications.channel, "IN_APP")))).toHaveLength(rows.length);
+  });
+
+  it("tells the super franchisee when a shop registers with a team dealer's code", async () => {
+    const deepak = await dealer("Deepak");
+    const dolke = await dealer("Dolke");
+    await promoteSuperFranchisee(deepak.id, { reason: "owner decision" }, admin);
+    await assignToSuperFranchisee(deepak.id, dolke.id, { reason: "his reference" }, admin);
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const shop = await createShop(owner.id, { name: "Team Kirana", status: "PENDING_APPROVAL", shopType: "GENERAL_TRADING" as never });
+    // Dolke's dealer code, and the shop registered with it.
+    const [rc] = await db.insert(referralCodes).values({ code: `GKD-T${Math.random().toString(36).slice(2, 7).toUpperCase()}`, createdBy: admin.id }).returning();
+    await db.insert(dealerCodes).values({ referralCodeId: rc.id, dealerId: dolke.id, kind: "DEALER" });
+    await db.update(shops).set({ referralCodeId: rc.id }).where(eq(shops.id, shop.id));
+    const { recordShopAttribution } = await import("@/server/dealers/attribution");
+    await recordShopAttribution(shop.id, admin);
+    const notes = await db.select().from(notifications).where(and(eq(notifications.userId, deepak.userId!), eq(notifications.channel, "IN_APP")));
+    expect(notes.map((n) => n.title)).toContain("New shop in your team: Team Kirana");
+    const dolkeNotes = await db.select().from(notifications).where(and(eq(notifications.userId, dolke.userId!), eq(notifications.type, "dealer.shop_attributed"), eq(notifications.channel, "IN_APP")));
+    expect(dolkeNotes).toHaveLength(1);
+  });
+
+  it("e-mails: promotion, joining, moving, taking out, removal; an admin-added dealer is welcomed with his code", async () => {
+    const titlesOf = async (userId: string | null) =>
+      (await db.select().from(notifications).where(and(eq(notifications.userId, userId!), eq(notifications.channel, "IN_APP")))).map((n) => n.title);
+    const deepak = await dealer("Deepak");
+    const sanjay = await dealer("Sanjay");
+    const dolke = await dealer("Dolke");
+    await promoteSuperFranchisee(deepak.id, { reason: "owner decision" }, admin);
+    await promoteSuperFranchisee(sanjay.id, { reason: "owner decision" }, admin);
+    expect(await titlesOf(deepak.userId)).toContain("You are now a GoKesari super franchisee");
+    await assignToSuperFranchisee(deepak.id, dolke.id, { reason: "his reference" }, admin);
+    expect(await titlesOf(deepak.userId)).toContain("Dolke joined your team");
+    expect(await titlesOf(dolke.userId)).toContain("You are now in Deepak's team");
+    await assignToSuperFranchisee(sanjay.id, dolke.id, { reason: "moved by the owner" }, admin);
+    expect(await titlesOf(deepak.userId)).toContain("Dolke left your team");
+    expect(await titlesOf(sanjay.userId)).toContain("Dolke joined your team");
+    await removeFromTeam(dolke.id, "owner decision", admin);
+    expect((await titlesOf(sanjay.userId)).filter((t) => t === "Dolke left your team")).toHaveLength(1);
+    expect(await titlesOf(dolke.userId)).toContain("Your super franchisee team changed");
+    await removeSuperFranchisee(deepak.id, "owner decision", admin);
+    expect(await titlesOf(deepak.userId)).toContain("You are no longer a GoKesari super franchisee");
+
+    // An admin adds a franchisee directly, linked to his account: welcomed with his code.
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const { createDealerByAdmin } = await import("@/server/dealers/service");
+    const added = await createDealerByAdmin({ legalName: "New Franchisee", contactName: "New Franchisee", dealerType: "PROPRIETORSHIP", stateCode: "MH", email: owner.email, reason: "owner decision" }, admin);
+    expect((await titlesOf(owner.id)).some((t) => t === `Welcome to GoKesari as a franchisee — your dealer code is ${added.code}`)).toBe(true);
+  });
 });
+

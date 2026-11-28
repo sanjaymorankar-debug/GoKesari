@@ -219,6 +219,9 @@ export const HOURLY: readonly Job[] = [
   { name: "dual-auth-reminders", run: async () => (await import("@/server/dual-auth/reminders")).runSecondFactorReminders() },
   { name: "risk-rules", run: async () => (await import("@/server/services/risk")).runRiskRules(SYSTEM) },
   { name: "dispute-escalation", run: async () => (await import("@/server/services/disputes")).runDisputeEscalationSweep() },
+  // 0232 (owner, 28-Nov-2026): held v2 / v3 shops, pay-later requests and shops not selling 10 days after go-live —
+  // franchisee → operator queue (7 days) → admin team (10 days), rule supportEscalation. Idempotent.
+  { name: "support-escalations", run: async () => (await import("@/server/services/support-escalations")).runSupportEscalations() },
   { name: "aftercare", run: aftercare },
   { name: "payout-retries", run: payoutRetries },
   // docs/gig-bank-payouts-2026-10: rider monthly payout on the 5th from 09:00 IST (a no-op at other times
@@ -260,6 +263,8 @@ export const DAILY: readonly Job[] = [
   // Owner, 5 Nov 2026: dealer team reports — yesterday's every day, last week's on Mondays (dealer, team leads, admins).
   { name: "dealer-team-report-daily", run: async () => (await import("@/server/dealers/team-report")).sendTeamReports("DAY") },
   { name: "dealer-team-report-weekly", weekday: 1, run: async () => (await import("@/server/dealers/team-report")).sendTeamReports("WEEK") },
+  // Owner, 27-Nov-2026: on the 1st, every dealer's report for last month (shops by name, commission, a super franchisee's team).
+  { name: "dealer-monthly-report", run: async () => (await import("@/server/dealers/report-extras")).sendMonthlyReports() },
   // docs/purchase-lists-2026-10: "time to reorder" for weekly / monthly lists that are due again.
   { name: "purchase-list-reminders", run: async () => (await import("@/server/services/purchase-lists")).sendPurchaseListReminders() },
   // docs/shop-documents-2026-10: live shops missing documents — reminders on the 1st and 15th, suspension after the 3rd.

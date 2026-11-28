@@ -83,6 +83,18 @@ export interface V2State {
   promiseDueLabel: string;
   sla: { accepted: boolean; acceptedAtIst: string | null; agreementsEnabled: boolean; agreementsRequired: boolean };
   returnTo: string | null;
+  /** 0231 (owner, 28-Nov-2026): the v3 order (agreement at step 2, licences after go-live). */
+  order?: "v2" | "v3";
+  early?: {
+    accepted: boolean;
+    acceptedAtIst: string | null;
+    name: string | null;
+    applied: boolean;
+    agreementsEnabled: boolean;
+    documents: { docType: "SELLER_SLA" | "MEDICAL_ONBOARDING"; version: string; title: string; legalDocumentId: string; languages: ("en" | "mr" | "hi")[] }[];
+    promiseDays: number;
+  } | null;
+  postLive?: { licencesAnswered: boolean; documentsUrl: string | null; promisedLicences: { key: string; label: string }[] } | null;
   /** docs/flows-v3/wave3.md (flag flow_f4): optional WhatsApp number and payment QR; absent / null = not asked. */
   contact?: { whatsappNumber: string | null; qrVpa: string | null; qrPayeeName: string | null } | null;
 }
@@ -371,6 +383,9 @@ function LicenceCard({ licence, v2, onState }: { licence: V2LicenceState; v2: V2
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
+  // Owner, 28-Nov-2026: the number is expired — "<Licence> expired on <date> — renew and upload … within N days".
+  const [renewalLine, setRenewalLine] = useState<string | null>(null);
+  const [renew, setRenew] = useState(false);
 
   /** Reads the photo on the device (no upload), then pre-fills the fields for the owner to confirm. */
   async function readPhoto(f: File) {
@@ -409,20 +424,26 @@ function LicenceCard({ licence, v2, onState }: { licence: V2LicenceState; v2: V2
       if (validUntil) form.set("validUntil", validUntil);
       if (authority) form.set("issuingAuthority", authority);
       form.set("consent", String(consent));
+      form.set("renewalPromise", String(renew));
       if (ocr) form.set("ocr", JSON.stringify(ocr));
       body = form;
     } else if (option === "LATER") {
       body = { licenceKey: licence.key, option, promise };
     } else {
-      body = { licenceKey: licence.key, option, number, holderName: holderName || null, validUntil: validUntil || null, issuingAuthority: authority || null, consent };
+      body = { licenceKey: licence.key, option, number, holderName: holderName || null, validUntil: validUntil || null, issuingAuthority: authority || null, consent, renewalPromise: renew };
     }
     const result = await call(`${API}/licences`, body);
     setBusy(false);
     if (!result.ok) {
+      if (result.fields?.renewalPromise) {
+        setRenewalLine(result.fields.renewalPromise);
+        return;
+      }
       setError(result.error);
       setFields(result.fields ?? {});
       return;
     }
+    setRenewalLine(null);
     setOpen(false);
     onState(result.data);
   }
@@ -530,8 +551,17 @@ function LicenceCard({ licence, v2, onState }: { licence: V2LicenceState; v2: V2
               </span>
             </label>
           ) : null}
+          {renewalLine && option !== "LATER" ? (
+            <Alert tone="warning" title="This licence has expired">
+              <p data-testid={`v2-licence-${licence.key}-expired`}>{renewalLine}</p>
+              <label className="mt-2 flex items-start gap-3 text-sm text-ink-700">
+                <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={renew} onChange={(e) => setRenew(e.target.checked)} data-testid={`v2-licence-${licence.key}-renew`} />
+                <span>I will renew this licence and upload the new one in time. GoKesari will remind me by e-mail and my shop can be paused if I don&apos;t.</span>
+              </label>
+            </Alert>
+          ) : null}
           {error ? <Alert tone="danger">{error}</Alert> : null}
-          <Button disabled={busy || reading || !canSave} onClick={() => void save()} data-testid={`v2-licence-${licence.key}-save`}>
+          <Button disabled={busy || reading || !canSave || (renewalLine !== null && option !== "LATER" && !renew)} onClick={() => void save()} data-testid={`v2-licence-${licence.key}-save`}>
             Save
           </Button>
         </>
@@ -558,9 +588,17 @@ export function SlaStep({ state, busy, send, reload }: { state: V2WizardLike; bu
   const v2 = state.v2!;
   const [terms, setTerms] = useState(false);
   const [undertaking, setUndertaking] = useState(false);
+  const v3 = v2.order === "v3";
   if (!state.shop) {
     return (
-      <V2Card title="Your seller agreement" intro="Almost done. Next we prepare your personalised seller agreement with your shop's details and licences.">
+      <V2Card
+        title={v3 ? "Create your shop" : "Your seller agreement"}
+        intro={
+          v3
+            ? `You accepted the seller agreement${v2.early?.acceptedAtIst ? ` on ${v2.early.acceptedAtIst}` : ""}. We now prepare your personalised copy with your shop's GST, name and address, e-mail it to you in English, मराठी and हिंदी, and put your shop live. Licences follow after go-live.`
+            : "Almost done. Next we prepare your personalised seller agreement with your shop's details and licences."
+        }
+      >
         <ul className="space-y-1 text-sm text-ink-700" data-testid="v2-sla-summary">
           <li>
             <strong>{v2.names.shopName}</strong>
@@ -569,7 +607,7 @@ export function SlaStep({ state, busy, send, reload }: { state: V2WizardLike; bu
           {state.address ? <li>{`${state.address.addressLine1}, ${state.address.city} ${state.address.pincode}`}</li> : null}
           {v2.licences.map((l) => (
             <li key={l.key}>
-              {l.label}: {l.entry ? STATUS_TEXT[l.entry.status].label : "—"}
+              {l.label}: {l.entry ? STATUS_TEXT[l.entry.status].label : v3 ? `after go-live (within ${v2.promiseDays} days)` : "—"}
             </li>
           ))}
           {v2.fee.paidAtIst ? <li>Fee paid on {v2.fee.paidAtIst}</li> : null}
@@ -580,7 +618,7 @@ export function SlaStep({ state, busy, send, reload }: { state: V2WizardLike; bu
           ) : null}
         </ul>
         <Button className="w-full" disabled={busy} onClick={() => void send(`${API}/agreement`, { action: "prepare" })} data-testid="v2-sla-prepare">
-          Continue to my seller agreement
+          {v3 ? "Create my shop and go live" : "Continue to my seller agreement"}
         </Button>
       </V2Card>
     );
@@ -622,6 +660,142 @@ export function SlaStep({ state, busy, send, reload }: { state: V2WizardLike; bu
       </Button>
     </V2Card>
     </>
+  );
+}
+
+/* ---------------------------------------- 0231: v3 — agreement at step 2, licences after go-live */
+
+/**
+ * v3, step 2 (owner, 28-Nov-2026): the seller agreement before the shop exists — the published template text (the
+ * personalised copy with the shop's GST, name and address is e-mailed after go-live), the goods undertaking, the
+ * Terms, the promise to upload or renew licences after go-live, and the owner's typed name.
+ */
+export function V3AgreementStep({ v2, busy, fields, send, ownerName }: { v2: V2State; busy: boolean; fields: Record<string, string>; send: Send; ownerName: string | null }) {
+  const early = v2.early;
+  const [ticked, setTicked] = useState<Record<string, boolean>>({});
+  const [policies, setPolicies] = useState(false);
+  const [undertaking, setUndertaking] = useState(false);
+  const [licences, setLicences] = useState(false);
+  const [name, setName] = useState(early?.name ?? ownerName ?? "");
+  const [reading, setReading] = useState<{ docType: string; lang: "en" | "mr" | "hi" } | null>(null);
+  if (!early) return null;
+  const docs = early.documents;
+  const allTicked = docs.every((d) => ticked[d.docType]) && policies && undertaking && licences && name.trim().length >= 3;
+  return (
+    <V2Card
+      title="Your seller agreement"
+      intro="Read and accept GoKesari's seller agreement. This is the standard text: once your shop is created we fill in your shop's GST, name and address and e-mail you the personalised copy in English, मराठी and हिंदी. No code is needed."
+    >
+      {docs.map((d) => (
+        <div key={d.docType} className="space-y-2 rounded-lg border border-[var(--gk-line)] bg-white p-3" data-testid={`v3-agreement-${d.docType}`}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-ink-900">
+              {d.title} <span className="font-normal text-ink-500">v{d.version}</span>
+            </p>
+            <div className="flex gap-1">
+              {d.languages.map((l) => (
+                <button
+                  key={l}
+                  type="button"
+                  className={`min-h-9 rounded-full border px-2.5 text-xs ${reading?.docType === d.docType && reading.lang === l ? "border-kesari-600 bg-kesari-600 text-white" : "border-[var(--gk-line)] text-ink-700"}`}
+                  onClick={() => setReading({ docType: d.docType, lang: l })}
+                >
+                  {l === "en" ? "English" : l === "mr" ? "मराठी" : "हिंदी"}
+                </button>
+              ))}
+            </div>
+          </div>
+          {reading?.docType === d.docType ? (
+            <iframe
+              title={d.title}
+              sandbox=""
+              className="h-80 w-full rounded border border-[var(--gk-line)] bg-white"
+              src={`${API}/agreement?doc=${d.docType}&lang=${reading.lang}`}
+              data-testid={`v3-agreement-${d.docType}-text`}
+            />
+          ) : (
+            <button type="button" className="min-h-11 text-sm font-semibold text-kesari-700 underline" onClick={() => setReading({ docType: d.docType, lang: "en" })}>
+              Read the agreement
+            </button>
+          )}
+          <label className="flex items-start gap-3 text-sm text-ink-700">
+            <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={Boolean(ticked[d.docType])} onChange={(e) => setTicked({ ...ticked, [d.docType]: e.target.checked })} data-testid={`v3-accept-${d.docType}`} />
+            <span>I have read and accept the {d.title} (v{d.version}).</span>
+          </label>
+          {fields[`accept_${d.docType}`] ? <p className="text-xs text-red-700">{fields[`accept_${d.docType}`]}</p> : null}
+        </div>
+      ))}
+      <details className="rounded-lg border border-[var(--gk-line)] bg-white p-3 text-sm">
+        <summary className="cursor-pointer font-semibold text-ink-900">{SELLER_UNDERTAKING_TITLE}</summary>
+        <SellerUndertakingClauses />
+      </details>
+      <label className="flex items-start gap-3 text-sm text-ink-700">
+        <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={policies} onChange={(e) => setPolicies(e.target.checked)} data-testid="v3-accept-policies" />
+        <span>{SELLER_TERMS_ACCEPT_TEXT}</span>
+      </label>
+      <label className="flex items-start gap-3 text-sm text-ink-700">
+        <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={undertaking} onChange={(e) => setUndertaking(e.target.checked)} data-testid="v3-accept-undertaking" />
+        <span>{SELLER_UNDERTAKING_PROMISE}</span>
+      </label>
+      <label className="flex items-start gap-3 text-sm text-ink-700">
+        <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={licences} onChange={(e) => setLicences(e.target.checked)} data-testid="v3-accept-licences" />
+        <span>
+          I will upload every licence my shop needs (FSSAI too, for food) — and renew any that has expired — within {early.promiseDays} days of going live. GoKesari will
+          remind me by e-mail and my shop can be paused if they are not uploaded by then.
+        </span>
+      </label>
+      <Field label="Your full name (your signature on the agreement)" error={fields.signerName}>
+        <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" data-testid="v3-agreement-name" />
+      </Field>
+      <Button
+        className="w-full"
+        disabled={busy || !allTicked}
+        onClick={() =>
+          void send(`${API}/agreement`, {
+            action: "early",
+            signerName: name,
+            accepted: docs.map((d) => ({ docType: d.docType, version: d.version })),
+            acceptPolicies: policies,
+            acceptUndertaking: undertaking,
+            acceptLicencePromise: licences,
+          })
+        }
+        data-testid="v3-agreement-accept"
+      >
+        Accept and continue
+      </Button>
+    </V2Card>
+  );
+}
+
+/** v3, after go-live: the licences promised at registration — upload them now (My shop → Documents) or later. */
+export function V3LicencesStep({ state, busy, send }: { state: V2WizardLike; busy: boolean; send: Send }) {
+  const v2 = state.v2!;
+  const post = v2.postLive;
+  if (!post) return null;
+  return (
+    <V2Card title="Your licences" intro={`${state.shop?.name ?? "Your shop"} is live. Upload the licences your shop needs within ${v2.promiseDays} days — or later, GoKesari reminds you by e-mail. Your shop is paused if they are not uploaded in time and goes live again by itself once they are.`}>
+      <ul className="list-disc space-y-1 pl-5 text-sm text-ink-700" data-testid="v3-licences-list">
+        {post.promisedLicences.map((l) => (
+          <li key={l.key}>{l.label}</li>
+        ))}
+      </ul>
+      {post.documentsUrl ? (
+        <Button
+          className="w-full"
+          disabled={busy}
+          onClick={async () => {
+            if (await send(`${API}/after-live`, { action: "licences" })) window.location.assign(post.documentsUrl!);
+          }}
+          data-testid="v3-licences-upload"
+        >
+          Upload my licences now
+        </Button>
+      ) : null}
+      <Button variant="secondary" className="w-full" disabled={busy} onClick={() => void send(`${API}/after-live`, { action: "licences" })} data-testid="v3-licences-later">
+        I&apos;ll upload them later
+      </Button>
+    </V2Card>
   );
 }
 

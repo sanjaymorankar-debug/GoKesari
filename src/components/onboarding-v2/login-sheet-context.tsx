@@ -11,6 +11,11 @@ export interface LoginSheetOptions {
   returnTo?: string;
   /** Called once the sheet is finished (signed in, mobile done). */
   onDone?: () => void;
+  /**
+   * 0231 (owner, 28-Nov-2026): "shop" when the sheet is the identity step of a shop registration (/shop/register) —
+   * the same Terms, e-mail and mobile steps, worded for the shop. Default: checkout.
+   */
+  purpose?: "checkout" | "shop";
 }
 
 export const OPEN_EVENT = "gk:open-login-sheet";
@@ -22,7 +27,7 @@ export function useLoginSheet(): ((options?: LoginSheetOptions) => void) | null 
 }
 
 /** For code outside React: opens the sheet if the provider is mounted (no-op otherwise). */
-export function openLoginSheet(returnTo?: string): void {
-  window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: { returnTo } }));
+export function openLoginSheet(returnTo?: string, purpose?: LoginSheetOptions["purpose"]): void {
+  window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: { returnTo, purpose } }));
 }
 

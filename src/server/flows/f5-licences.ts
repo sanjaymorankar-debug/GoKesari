@@ -205,7 +205,7 @@ export async function markPromisesGiven(shopId: string): Promise<number> {
     .where(and(eq(registrationLicenceEntries.shopId, shopId), eq(registrationLicenceEntries.status, "PROMISED")));
   if (promised.length === 0) return 0;
   const [legal, seller] = await Promise.all([
-    db.select({ docType: shopLegalDocuments.docType, licenceKey: shopLegalDocuments.licenceKey, status: shopLegalDocuments.status }).from(shopLegalDocuments).where(eq(shopLegalDocuments.shopId, shopId)),
+    db.select({ docType: shopLegalDocuments.docType, licenceKey: shopLegalDocuments.licenceKey, status: shopLegalDocuments.status, expiryDate: shopLegalDocuments.expiryDate }).from(shopLegalDocuments).where(eq(shopLegalDocuments.shopId, shopId)),
     db.select({ docType: sellerVerifications.docType, status: sellerVerifications.status }).from(sellerVerifications).where(eq(sellerVerifications.shopId, shopId)),
   ]);
   const GIVEN_NOTE = "Given after registration; GoKesari's team is checking it.";
@@ -215,7 +215,12 @@ export async function markPromisesGiven(shopId: string): Promise<number> {
     const sellerRow = seller.find((s) => s.docType === entry.licenceKey);
     if (sellerRow && SELLER_GIVEN.has(sellerRow.status)) state = sellerRow.status === "VERIFIED" ? "DONE" : "CHECKING";
     const slot = registerSlotOf(entry.licenceKey);
-    const legalRow = slot ? legal.find((l) => l.docType === slot.docType && l.licenceKey === slot.licenceKey) : undefined;
+    // Owner, 28-Nov-2026: a renewal promise (an expired licence at registration) is given only by a licence that has
+    // not expired.
+    const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+    const legalRow = slot
+      ? legal.find((l) => l.docType === slot.docType && l.licenceKey === slot.licenceKey && (!entry.renewalPromisedAt || !l.expiryDate || l.expiryDate >= today))
+      : undefined;
     if (legalRow?.status === "APPROVED") state = "DONE";
     else if (legalRow?.status === "SUBMITTED" && state === null) state = "CHECKING";
     if (state === null) continue;

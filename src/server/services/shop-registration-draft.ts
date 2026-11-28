@@ -357,8 +357,11 @@ export async function lockOpenDraft(tx: DbClient, ownerId: string): Promise<Shop
   // docs/onboarding-v2-2026-11 (Flow 2): a registration started while onboarding_v2 is on follows the v2 order;
   // one started before keeps the original wizard to the end.
   const flowVersion = (await (await import("@/server/onboarding-v2/roles")).onboardingV2Enabled()) ? "v2" : null;
+  // Owner, 28-Nov-2026 (0231): a new v2 draft follows the v3 order (rule onboardingV2.shopRegistrationOrder); drafts
+  // already open keep theirs.
+  const flowOrder = flowVersion === "v2" && (await getRule("onboardingV2")).shopRegistrationOrder === "v3" ? ("v3" as const) : null;
   try {
-    await tx.insert(shopRegistrationDrafts).values({ ownerId, flowVersion });
+    await tx.insert(shopRegistrationDrafts).values({ ownerId, flowVersion, flowOrder });
   } catch (error) {
     // Only reachable if a writer bypassed the lock; the other draft wins.
     if (!isUniqueViolation(error)) throw error;

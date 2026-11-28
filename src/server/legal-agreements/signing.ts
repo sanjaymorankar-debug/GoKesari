@@ -169,6 +169,23 @@ export type SignInput = {
   ip: string | null;
   userAgent: string | null;
   geo?: { lat: number; lng: number; accuracyM?: number } | null;
+  /**
+   * Owner, 28-Nov-2026: a v2 / v3 registration not live yet with an EXPIRED licence signs on the owner's promise to
+   * renew it (AgreementStatus.renewals); the promise is recorded with the signature and the follow-up chases it.
+   */
+  renewalPromise?: boolean;
+};
+
+/** Narrow options of the registration paths (the early acceptance applied at shop creation). */
+type SignOptions = {
+  /** Only these document types are signed now (the rest stay to sign on the agreement screen). */
+  onlyDocTypes?: SignedDocType[];
+  /** The time the owner accepted (the early acceptance on the draft), recorded instead of now. */
+  acceptedAt?: Date;
+  /** Shown on the certificate instead of the OTP reference. */
+  certificateRef?: string;
+  /** Added to the AGREEMENT_SIGNED audit entry. */
+  auditExtra?: Record<string, unknown>;
 };
 
 type RenderedDoc = {
@@ -282,12 +299,66 @@ export async function acceptAgreementsAtRegistration(ctx: SigningContext, input:
   return signWith(ctx, { ...input, code: "" }, "REGISTRATION_ACCEPT");
 }
 
-async function signWith(ctx: SigningContext, input: SignInput, method: SignatureMethod): Promise<SignResult> {
+/**
+ * 0231 (owner, 28-Nov-2026, v3 order): the seller agreement the owner accepted at step 2 of the registration — the
+ * published template text, with the ticks and their typed name, before the shop existed — applied to the shop's
+ * personalised agreement when the shop row is created, so the owner does not see a second agreement screen. Only the
+ * documents accepted then, in the same version, are signed (method REGISTRATION_ACCEPT, the stored time and IP; the
+ * certificate says how it was accepted). Anything else the shop now needs (a newer version, the medical agreement of a
+ * medical shop) is left to the registration's agreement screen. Returns null when there was nothing to apply.
+ * DEFAULT – confirm with Sanjay: the constitution comes from the PAN (designation to match) — the owner was not asked.
+ */
+export async function applyEarlyRegistrationAcceptance(
+  ctx: SigningContext,
+  input: { signerName: string; accepted: { docType: SignedDocType; version: string }[]; acceptedAt: Date; ip: string | null; userAgent: string | null; renewalPromise: boolean; draftId: string },
+): Promise<SignResult | null> {
+  const { v2SlaPendingForShop } = await import("@/server/onboarding-v2/shop-view");
+  if (!(await v2SlaPendingForShop(ctx.shopId))) return null;
+  const status = await getAgreementStatus(ctx.shopId);
+  if (!status.enabled || status.noPublishedDocuments || !status.required) return null;
+  const only = status.documents.filter((d) => !d.signed && input.accepted.some((a) => a.docType === d.docType && a.version === d.version)).map((d) => d.docType);
+  if (only.length === 0) return null;
+  const snapshot = await buildShopSnapshot(ctx.shopId);
+  const constitution = snapshot.seller.constitution ?? "PROPRIETORSHIP";
+  const { designationFor } = await import("./i18n");
+  return signWith(
+    ctx,
+    {
+      code: "",
+      signerName: input.signerName,
+      designation: designationFor(constitution),
+      constitution,
+      pharmacist: null,
+      accepted: input.accepted,
+      languageViewed: "en",
+      ip: input.ip,
+      userAgent: input.userAgent,
+      renewalPromise: input.renewalPromise,
+    },
+    "REGISTRATION_ACCEPT",
+    {
+      onlyDocTypes: only,
+      acceptedAt: input.acceptedAt,
+      certificateRef: `None — accepted at shop registration on ${dateTimeIst(input.acceptedAt)} with ticks and typed name (no OTP); personalised copy made when the shop was created`,
+      auditExtra: { earlyAcceptance: { draftId: input.draftId, acceptedAt: input.acceptedAt.toISOString() } },
+    },
+  );
+}
+
+async function signWith(ctx: SigningContext, input: SignInput, method: SignatureMethod, options: SignOptions = {}): Promise<SignResult> {
   const signerName = input.signerName.trim().replace(/\s+/g, " ");
   if (signerName.length < 3 || signerName.length > 120 || !/\p{L}/u.test(signerName)) throw validationFailed("Type your full name as it should appear on the agreement.");
   const status = await getAgreementStatus(ctx.shopId);
   assertSignable(status);
-  const toSign = status.documents.filter((d) => !d.signed);
+  // Owner, 28-Nov-2026: an expired licence at a registration is renewed after go-live on the owner's promise.
+  if (status.renewals.length > 0 && input.renewalPromise !== true) {
+    throw validationFailed(`Tick the box to promise the renewal: ${status.renewals.map((r) => r.message).join(" ")}`, {
+      reason: "RENEWAL_PROMISE_REQUIRED",
+      renewals: status.renewals,
+      fields: { renewalPromise: "Required." },
+    });
+  }
+  const toSign = status.documents.filter((d) => !d.signed && (!options.onlyDocTypes || options.onlyDocTypes.includes(d.docType)));
   for (const d of toSign) {
     const ticked = input.accepted.find((a) => a.docType === d.docType);
     if (!ticked) throw validationFailed(`Tick "${d.title}" to accept it.`);
@@ -311,12 +382,12 @@ async function signWith(ctx: SigningContext, input: SignInput, method: Signature
         .orderBy(desc(loginOtps.createdAt))
         .limit(1)
     : [];
-  const otpRef = byOtp ? (pendingOtp?.id ?? "none") : REGISTRATION_ACCEPT_REF;
+  const otpRef = byOtp ? (pendingOtp?.id ?? "none") : (options.certificateRef ?? REGISTRATION_ACCEPT_REF);
 
   type Prepared = { snapshot: AgreementSnapshot; snapshotJson: string; snapshotHash: string; rendered: RenderedDoc[]; acceptedAt: Date };
   let prepared: Prepared | null = null;
   const prepare = async () => {
-      const acceptedAt = new Date();
+      const acceptedAt = options.acceptedAt ?? new Date();
       const snapshot = await buildShopSnapshot(ctx.shopId, {
         constitution: input.constitution,
         designation: input.designation,
@@ -444,6 +515,8 @@ async function signWith(ctx: SigningContext, input: SignInput, method: Signature
           platform,
           reason,
           snapshotSha256: p.snapshotHash,
+          ...(status.renewals.length > 0 ? { renewalsPromised: status.renewals.map((r) => ({ key: r.key, expiredOn: r.expiredOn })) } : {}),
+          ...(options.auditExtra ?? {}),
         },
         ipAddress: input.ip,
         userAgent: input.userAgent?.slice(0, 500) ?? null,
@@ -453,7 +526,15 @@ async function signWith(ctx: SigningContext, input: SignInput, method: Signature
     return { requestId: requestId!, acceptanceIds };
   });
 
-  await markSatisfied(ctx.shopId, result.requestId);
+  // Owner, 28-Nov-2026: the renewal promise given with the signature reaches the documents follow-up.
+  if (status.renewals.length > 0) {
+    await (await import("@/server/onboarding-v2/licence-renewals"))
+      .recordRenewalPromises(ctx.shopId, status.renewals, { userId: owner.id, role: owner.role, ip: input.ip })
+      .catch((error: unknown) => console.error("[seller-agreements] renewal promise not recorded", ctx.shopId, error));
+  }
+  // Only part of what the shop needs was signed (the early acceptance): the rest is still to sign.
+  const stillRequired = options.onlyDocTypes ? (await getAgreementStatus(ctx.shopId, { track: false })).required : false;
+  if (!stillRequired) await markSatisfied(ctx.shopId, result.requestId);
   // The Seller Terms, Terms of Use and Privacy Policy ticked with the agreements: their current versions.
   await (await import("@/server/services/policy-versions"))
     .recordCurrentAcceptances(owner.id, ["terms", "privacy-policy", "seller-terms"], "SHOP_PORTAL", { ipAddress: input.ip })

@@ -12121,6 +12121,19 @@ export const shopRegistrationDrafts = pgTable(
     ownerId: uuid("owner_id").notNull(),
     /** docs/onboarding-v2-2026-11 (0215): "v2" when the draft follows the onboarding_v2 order; null = the original wizard. */
     flowVersion: text("flow_version"),
+    /**
+     * 0231 (owner, 28-Nov-2026): "v3" — a v2 draft started after the new order (referral → identity → seller agreement
+     * accepted early → GST / PAN → fee → type → address + pin → live → licences after go-live). Null: the v2 order.
+     */
+    flowOrder: text("flow_order", { enum: ["v3"] }),
+    /** 0231: the seller agreement accepted at step 2 (template text; ticks + typed name), applied when the shop is created. */
+    earlyAgreementAcceptedAt: timestamp("early_agreement_accepted_at", { withTimezone: true }),
+    earlyAgreementName: text("early_agreement_name"),
+    earlyAgreementIp: text("early_agreement_ip"),
+    earlyAgreementUserAgent: text("early_agreement_user_agent"),
+    /** The published texts shown and the ticks given (see onboarding-v2/early-agreement.ts EarlyAgreementRecord). */
+    earlyAgreementDocuments: jsonb("early_agreement_documents").$type<Record<string, unknown>>(),
+    earlyAgreementAppliedAt: timestamp("early_agreement_applied_at", { withTimezone: true }),
     identityVerifiedAt: timestamp("identity_verified_at", { withTimezone: true }),
     /** SHOP or WHOLESALE: picks the v2 registration fee (rule onboardingV2). */
     feeKind: text("fee_kind", { enum: ["SHOP", "WHOLESALE"] }),
@@ -12223,6 +12236,7 @@ export const shopRegistrationDrafts = pgTable(
     check("shop_registration_drafts_assisted_role", sql`${t.assistedRole} IS NULL OR ${t.assistedRole} in ('DEALER', 'DEALER_EMPLOYEE', 'OPERATOR')`),
     check("shop_registration_drafts_status", sql`${t.status} in ('OPEN', 'SUBMITTED', 'COMPLETED', 'ABANDONED')`),
     check("shop_registration_drafts_route", sql`${t.route} IS NULL OR ${t.route} in ('GSTIN', 'PAN_ONLY')`),
+    check("shop_registration_drafts_flow_order", sql`${t.flowOrder} IS NULL OR ${t.flowOrder} in ('v3')`),
   ],
 );
 
@@ -13937,3 +13951,91 @@ export const shopFeeRecoveries = pgTable(
 );
 export type ShopFeeRecovery = typeof shopFeeRecoveries.$inferSelect;
 /* <<< docs/fee-pay-later-2026-11 */
+
+/* >>> 0232 (owner, 28-Nov-2026): v2 / v3 go-live rule + one support escalation ladder (docs/onboarding-v2-2026-11). */
+export const SUPPORT_ESCALATION_KINDS = ["SHOP_REVIEW", "FEE_PAY_LATER", "NO_PRODUCTS_OR_SALES"] as const;
+export type SupportEscalationKind = (typeof SUPPORT_ESCALATION_KINDS)[number];
+export const SUPPORT_ESCALATION_LEVELS = ["FRANCHISEE", "OPERATOR", "ADMIN"] as const;
+export type SupportEscalationLevel = (typeof SUPPORT_ESCALATION_LEVELS)[number];
+export const SUPPORT_ESCALATION_RESOLUTIONS = ["APPROVED", "REJECTED", "RESOLVED", "CLOSED"] as const;
+export type SupportEscalationResolution = (typeof SUPPORT_ESCALATION_RESOLUTIONS)[number];
+
+/**
+ * One item on the ladder franchisee → operator (franchiseeDays) → admin (adminDays). Open while resolved_at is null;
+ * one open row per (kind, subject). No foreign keys to the seller / customer tables: the service checks the links.
+ */
+export const supportEscalations = pgTable(
+  "support_escalations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: text("kind", { enum: SUPPORT_ESCALATION_KINDS }).notNull(),
+    /** SHOP_REVIEW / NO_PRODUCTS_OR_SALES: the shop; FEE_PAY_LATER: the shop_fee_pay_later row. */
+    subjectId: uuid("subject_id").notNull(),
+    shopId: uuid("shop_id"),
+    ownerId: uuid("owner_id"),
+    level: text("level", { enum: SUPPORT_ESCALATION_LEVELS }).notNull(),
+    franchiseeDealerId: uuid("franchisee_dealer_id"),
+    franchiseeUserId: uuid("franchisee_user_id"),
+    reason: text("reason"),
+    details: jsonb("details").$type<Record<string, unknown>>().notNull().default({}),
+    openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
+    levelChangedAt: timestamp("level_changed_at", { withTimezone: true }).notNull().defaultNow(),
+    lastRemindedAt: timestamp("last_reminded_at", { withTimezone: true }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedBy: uuid("resolved_by"),
+    resolution: text("resolution", { enum: SUPPORT_ESCALATION_RESOLUTIONS }),
+    resolutionNote: text("resolution_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("support_escalations_open_uq").on(t.kind, t.subjectId).where(sql`${t.resolvedAt} IS NULL`),
+    index("support_escalations_level_idx").on(t.level, t.openedAt).where(sql`${t.resolvedAt} IS NULL`),
+    index("support_escalations_franchisee_idx").on(t.franchiseeUserId).where(sql`${t.resolvedAt} IS NULL`),
+    index("support_escalations_shop_idx").on(t.shopId, t.kind),
+  ],
+);
+export type SupportEscalation = typeof supportEscalations.$inferSelect;
+
+/** Every hand-over of an escalation: opened, escalated a level, reminded, resolved (who, when, from / to). */
+export const supportEscalationEvents = pgTable(
+  "support_escalation_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    escalationId: uuid("escalation_id")
+      .notNull()
+      .references(() => supportEscalations.id, { onDelete: "cascade" }),
+    event: text("event", { enum: ["OPENED", "ESCALATED", "REMINDED", "RESOLVED"] }).notNull(),
+    fromLevel: text("from_level", { enum: SUPPORT_ESCALATION_LEVELS }),
+    toLevel: text("to_level", { enum: SUPPORT_ESCALATION_LEVELS }),
+    actorId: uuid("actor_id"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("support_escalation_events_escalation_idx").on(t.escalationId, t.createdAt)],
+);
+export type SupportEscalationEvent = typeof supportEscalationEvents.$inferSelect;
+
+export const SHOP_REVIEW_FLAGS = ["NAME_MATCH_LOW", "NAME_NOT_RETURNED", "PAN_NOT_IN_GSTIN"] as const;
+export type ShopReviewFlagType = (typeof SHOP_REVIEW_FLAGS)[number];
+
+/** A v2 / v3 shop went live with something to look at afterwards (never a hold). */
+export const shopReviewFlags = pgTable(
+  "shop_review_flags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull(),
+    flag: text("flag", { enum: SHOP_REVIEW_FLAGS }).notNull(),
+    details: jsonb("details").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedBy: uuid("resolved_by"),
+    resolutionNote: text("resolution_note"),
+  },
+  (t) => [
+    uniqueIndex("shop_review_flags_open_uq").on(t.shopId, t.flag).where(sql`${t.resolvedAt} IS NULL`),
+    index("shop_review_flags_open_idx").on(t.createdAt).where(sql`${t.resolvedAt} IS NULL`),
+  ],
+);
+export type ShopReviewFlag = typeof shopReviewFlags.$inferSelect;
+/* <<< 0232 */

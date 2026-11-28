@@ -391,11 +391,15 @@ async function validateTerritories(codes: string[], franchiseOwner = false): Pro
  * when the number changes; bank details are checked with the bank after the
  * save (checkDealerBank).
  */
-export async function saveApplication(input: DealerApplicationInput, actor: DealerActor & { email: string | null }): Promise<Dealer> {
+export async function saveApplication(rawInput: DealerApplicationInput, actor: DealerActor & { email: string | null }): Promise<Dealer> {
   if (!isPanEncryptionConfigured()) {
     // PAN, bank numbers and documents are stored only encrypted; without the key nothing personal is accepted.
     throw new AppError("CONFLICT", "Dealer applications are not available on this site yet (secure storage is not set up).");
   }
+  // Owner, 28-Nov-2026: a shop owner's details come from his live shop and account — what he leaves blank (the form
+  // shows them read-only, "from your shop") is filled from there; nothing is typed again.
+  const promotions = await import("./promotion");
+  const input = await promotions.withShopDefaults(rawInput, actor.id);
   const legalName = clean(input.legalName, 120);
   const contactName = clean(input.contactName, 120);
   if (!legalName) throw validationFailed("Enter the legal or business name.", { fields: { legalName: "Required." } });
@@ -449,7 +453,7 @@ export async function saveApplication(input: DealerApplicationInput, actor: Deal
     if (taken && taken.userId !== actor.id) throw conflict("A dealer with this PAN is already registered.");
   }
 
-  return db.transaction(async (tx) => {
+  const written = await db.transaction(async (tx) => {
     const [existing] = await tx.select().from(dealers).where(eq(dealers.userId, actor.id)).for("update");
     if (existing && !EDITABLE.includes(existing.status)) {
       throw conflict(`Your application is ${DEALER_STATUS_LABELS[existing.status].toLowerCase()}; it can no longer be edited.`);
@@ -519,6 +523,8 @@ export async function saveApplication(input: DealerApplicationInput, actor: Deal
     );
     return dealer;
   });
+  // The shop's verified mobile, PAN, GSTIN and payout bank count as verified for the dealer too (not checked again).
+  return promotions.applyShopDetails(written.id, actor);
 }
 
 export async function sendDealerMobileOtp(actor: DealerActor, ip: string | null) {
@@ -837,13 +843,67 @@ async function salespeopleCodes(dealerId: string, client: DbClient, onlyActivePe
 }
 
 /**
+ * The checks an approval must pass (and what it sets on the row): agreement dates; a free franchisee request
+ * (source SHOP_REQUEST) only needs its shop still live — PAN and payout bank follow before the first payout
+ * (owner, 27-Nov-2026); any other application needs the mobile verified (or confirmed by call), every required
+ * document accepted or verified online, and the bank verified (or confirmed from the accepted bank proof).
+ */
+async function approvalChecks(dealer: Dealer, decision: Extract<DealerDecision, { action: "APPROVE" }>, tx: DbClient, now: Date): Promise<Partial<typeof dealers.$inferInsert>> {
+  const extra: Partial<typeof dealers.$inferInsert> = {};
+  if (!DATE.test(decision.agreementStart) || !DATE.test(decision.agreementEnd) || decision.agreementEnd < decision.agreementStart) {
+    throw validationFailed("Give the agreement's start and end dates (end on or after start).", { fields: { agreementStart: "Required.", agreementEnd: "Required." } });
+  }
+  // Owner, 27-Nov-2026: a free franchisee request from a live shop (source SHOP_REQUEST) is approved on the shop's
+  // verified details — the shop must still be live; PAN and payout bank follow before the first payout.
+  const shopRequest = dealer.source === "SHOP_REQUEST";
+  if (shopRequest) {
+    const { liveShopForUser } = await import("@/server/onboarding-v2/franchise");
+    if (!dealer.userId || !(await liveShopForUser(dealer.userId, tx))) throw conflict("This request's shop is no longer live. Reject the request, or wait until the shop is live again.");
+  }
+  if (!shopRequest && !dealer.mobileVerifiedAt && !decision.mobileConfirmedByCall) {
+    throw validationFailed("The mobile number is not verified. Confirm it by calling the dealer, then tick the box.", { fields: { mobile: "Not verified." } });
+  }
+  const view = await dealerView(dealer, tx);
+  const notAccepted = shopRequest ? [] : view.requirements.filter((r) => r.required && r.status !== "ACCEPTED" && r.status !== "VERIFIED_ONLINE");
+  if (notAccepted.length) throw validationFailed(`Accept these documents first: ${notAccepted.map((r) => r.label).join(", ")}.`);
+  if (!shopRequest && dealer.bankStatus !== "VERIFIED") {
+    const bankProof = view.requirements.find((r) => r.docType === "BANK_PROOF");
+    if (!decision.bankVerifiedByDocument || bankProof?.status !== "ACCEPTED") {
+      throw validationFailed("The bank account is not verified. Accept the cancelled cheque / bank proof and confirm the account from it.", { fields: { bank: "Not verified." } });
+    }
+    Object.assign(extra, { bankStatus: "VERIFIED", bankVerifiedAt: now, bankStatusReason: "Verified by an admin from the bank proof." });
+  }
+  if (!dealer.mobileVerifiedAt && !shopRequest) Object.assign(extra, { mobileVerifiedAt: now, mobileVerificationMethod: "ADMIN_CALL" });
+  Object.assign(extra, { agreementStart: decision.agreementStart, agreementEnd: decision.agreementEnd });
+  return extra;
+}
+
+/**
+ * Read-only: would this approval pass now? Used before a shop owner's promotion is sent to a second admin / operator,
+ * so the confirmer never meets a check the first admin could have fixed. Throws what decideDealer would throw.
+ */
+export async function assertDealerApprovable(dealerId: string, decision: Extract<DealerDecision, { action: "APPROVE" }>): Promise<Dealer> {
+  const dealer = await getDealer(dealerId);
+  if (dealer.isInternal) throw conflict("GoKesari Direct cannot be changed here.");
+  if (dealer.status !== "PENDING") throw new AppError("INVALID_STATE_TRANSITION", `A ${DEALER_STATUS_LABELS[dealer.status].toLowerCase()} dealer cannot be approved.`);
+  await approvalChecks(dealer, decision, db, new Date());
+  return dealer;
+}
+
+/**
  * ADMIN only. Approve (PENDING → APPROVED: documents accepted, mobile and bank
  * verified — or confirmed by the admin — agreement dates; issues the code and
  * grants the DEALER role), reject (PENDING), suspend (APPROVED), reactivate
  * (SUSPENDED) or terminate (APPROVED / SUSPENDED). A reason is required for
  * everything but approval; the dealer is notified.
  */
-export async function decideDealer(dealerId: string, decision: DealerDecision, actor: DealerActor): Promise<{ dealer: Dealer; code: string | null }> {
+export async function decideDealer(
+  dealerId: string,
+  decision: DealerDecision,
+  actor: DealerActor,
+  /** A shop owner's promotion: the approval request a different admin / operator confirmed (src/server/dealers/promotion.ts). */
+  options: { promotionApproval?: { id: string; confirmedBy: string } } = {},
+): Promise<{ dealer: Dealer; code: string | null }> {
   // docs/dealer-platform phase 6: approve / reject — DEALER_APPROVE; suspend / reactivate / terminate — DEALER_SUSPEND;
   // a Regional Admin only in his regions (checked below, once the dealer is read).
   const { requireDealerPermission, requireDealerInScope } = await import("./staff-access");
@@ -874,33 +934,20 @@ export async function decideDealer(dealerId: string, decision: DealerDecision, a
     let to: DealerStatus;
     revoke.length = 0;
     const extra: Partial<typeof dealers.$inferInsert> = {};
+    let promotion = false;
 
     if (decision.action === "APPROVE") {
-      if (!DATE.test(decision.agreementStart) || !DATE.test(decision.agreementEnd) || decision.agreementEnd < decision.agreementStart) {
-        throw validationFailed("Give the agreement's start and end dates (end on or after start).", { fields: { agreementStart: "Required.", agreementEnd: "Required." } });
-      }
-      // Owner, 27-Nov-2026: a free franchisee request from a live shop (source SHOP_REQUEST) is approved on the shop's
-      // verified details — the shop must still be live; PAN and payout bank follow before the first payout.
-      const shopRequest = dealer.source === "SHOP_REQUEST";
-      if (shopRequest) {
-        const { liveShopForUser } = await import("@/server/onboarding-v2/franchise");
-        if (!dealer.userId || !(await liveShopForUser(dealer.userId, tx))) throw conflict("This request's shop is no longer live. Reject the request, or wait until the shop is live again.");
-      }
-      if (!shopRequest && !dealer.mobileVerifiedAt && !decision.mobileConfirmedByCall) {
-        throw validationFailed("The mobile number is not verified. Confirm it by calling the dealer, then tick the box.", { fields: { mobile: "Not verified." } });
-      }
-      const view = await dealerView(dealer, tx);
-      const notAccepted = shopRequest ? [] : view.requirements.filter((r) => r.required && r.status !== "ACCEPTED" && r.status !== "VERIFIED_ONLINE");
-      if (notAccepted.length) throw validationFailed(`Accept these documents first: ${notAccepted.map((r) => r.label).join(", ")}.`);
-      if (!shopRequest && dealer.bankStatus !== "VERIFIED") {
-        const bankProof = view.requirements.find((r) => r.docType === "BANK_PROOF");
-        if (!decision.bankVerifiedByDocument || bankProof?.status !== "ACCEPTED") {
-          throw validationFailed("The bank account is not verified. Accept the cancelled cheque / bank proof and confirm the account from it.", { fields: { bank: "Not verified." } });
+      // Owner, 28-Nov-2026: a shop owner's promotion to dealer / franchisee is confirmed by a second admin or operator
+      // (four-eye, strict) before the code is issued — whatever flag dealer_platform_four_eye says.
+      const promotions = await import("./promotion");
+      promotion = await promotions.isShopOwnerPromotion(dealer, tx);
+      if (promotion) {
+        if (!options.promotionApproval) {
+          throw conflict("A different admin or operator must confirm this promotion before the dealer code is issued.", { reason: "FOUR_EYE_REQUIRED" });
         }
-        Object.assign(extra, { bankStatus: "VERIFIED", bankVerifiedAt: now, bankStatusReason: "Verified by an admin from the bank proof." });
+        await promotions.assertPromotionConfirmed(options.promotionApproval.id, dealer.id, tx);
       }
-      if (!dealer.mobileVerifiedAt && !shopRequest) Object.assign(extra, { mobileVerifiedAt: now, mobileVerificationMethod: "ADMIN_CALL" });
-      Object.assign(extra, { agreementStart: decision.agreementStart, agreementEnd: decision.agreementEnd });
+      Object.assign(extra, await approvalChecks(dealer, decision, tx, now));
       to = "APPROVED";
       const existing = (await listDealerCodes(dealer.id, tx)).find((c) => c.kind !== "SALESPERSON" && c.status === "ACTIVE");
       code =
@@ -909,8 +956,20 @@ export async function decideDealer(dealerId: string, decision: DealerDecision, a
       if (dealer.userId) await grantRole(dealer.userId, "DEALER", { source: "ADMIN", grantedBy: actor.id, activateIfCustomer: true }, tx);
       // docs/dealer-platform phase 2: onto the scheme version he chose and accepted.
       await (await import("./scheme-registration")).assignOnApproval(dealer, actor.id, tx);
-      if (shopRequest && dealer.userId) {
-        await (await import("@/server/onboarding-v2/roles")).recordRoleChange({ userId: dealer.userId, role: "dealer_free", action: "GRANTED", dealerId: dealer.id, actorUserId: actor.id, reason: "free franchisee request approved by an admin" }, tx);
+      if ((dealer.source === "SHOP_REQUEST" || promotion) && dealer.userId) {
+        await (await import("@/server/onboarding-v2/roles")).recordRoleChange(
+          {
+            userId: dealer.userId,
+            role: "dealer_free",
+            action: "GRANTED",
+            dealerId: dealer.id,
+            actorUserId: actor.id,
+            reason: promotion
+              ? `${dealer.source === "SHOP_REQUEST" ? "free franchisee request" : "shop owner's dealer application"} approved by an admin, confirmed by a second admin / operator`
+              : "free franchisee request approved by an admin",
+          },
+          tx,
+        );
       }
     } else if (decision.action === "REJECT") {
       to = "REJECTED";
@@ -945,7 +1004,13 @@ export async function decideDealer(dealerId: string, decision: DealerDecision, a
         entityType: "dealer",
         entityId: dealer.id,
         previousValue: { status: from },
-        newValue: { status: to, reason, code, ...(decision.action === "APPROVE" ? { agreementStart: decision.agreementStart, agreementEnd: decision.agreementEnd } : {}) },
+        newValue: {
+          status: to,
+          reason,
+          code,
+          ...(decision.action === "APPROVE" ? { agreementStart: decision.agreementStart, agreementEnd: decision.agreementEnd } : {}),
+          ...(promotion && options.promotionApproval ? { promotion: true, approvalId: options.promotionApproval.id, confirmedBy: options.promotionApproval.confirmedBy } : {}),
+        },
       },
       tx,
     );
@@ -1086,6 +1151,19 @@ export async function createDealerByAdmin(input: AdminDealerInput, actor: Dealer
     );
     return { dealer, code };
   });
+  // Owner, 27-Nov-2026: the dealer added by an admin is welcomed with his code (e-mail + in-app), like an approved
+  // application. Only when the dealer is linked to a sign-in account (an e-mail of an existing account was given).
+  if (result.dealer.userId) {
+    await notify({
+      userId: result.dealer.userId,
+      type: NOTIFICATION_TYPES.DEALER_STATUS_CHANGED,
+      title: `Welcome to GoKesari as a franchisee — your dealer code is ${result.code}`,
+      body: `GoKesari has made ${result.dealer.legalName} a franchisee (dealer). Your dealer code is ${result.code}: shops that register with it are counted for you, and you earn commission on them. Share it with shops, or register shops from your dealer page. Add your PAN and payout bank account on your dealer page before your first payout.`,
+      vars: { statusLabel: "Approved", detail: `Your dealer code is ${result.code}.` },
+      actionUrl: "/dealer",
+      dedupeKey: `dealer-admin-added:${result.dealer.id}`,
+    }).catch((e: unknown) => console.error("[dealers] welcome notice failed", result.dealer.id, e instanceof Error ? e.message : e));
+  }
   return result;
 }
 

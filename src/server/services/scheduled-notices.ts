@@ -43,6 +43,8 @@ const STEP_LABEL: Record<string, { label: string; tile: number }> = {
   FEE: { label: "Pay the registration fee", tile: 2 },
   V2_LICENCES: { label: "Licences for your shop", tile: 3 },
   SLA: { label: "Accept your seller agreement", tile: 5 },
+  // 0231 (v3 order): the seller agreement right after sign-in.
+  V3_AGREEMENT: { label: "Accept your seller agreement", tile: 1 },
 };
 /** The tile where the shop goes live once its last step is done. */
 const LIVE_AFTER_TILE = 5;

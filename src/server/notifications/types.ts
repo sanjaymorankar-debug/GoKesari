@@ -28,6 +28,10 @@ export const NOTIFICATION_TYPES = {
   SUPPORT_SHOP_FEE_PAY_LATER_REQUESTED: "support.shop_fee_pay_later_requested",
   /** docs/fee-pay-later-2026-11 (0229): to the dealer / franchise whose referral code the shop used — approve or reject. */
   DEALER_SHOP_FEE_PAY_LATER_REQUESTED: "dealer.shop_fee_pay_later_requested",
+  /** 0232 (owner, 28-Nov-2026): to whoever now has a support escalation (franchisee, operators, admins) — act on it. */
+  SUPPORT_ESCALATION_ASSIGNED: "support.escalation_assigned",
+  /** 0232: to the shop owner — a reminder at each step of the escalation ladder (held shop, pay later, no products / sales). */
+  SHOP_SUPPORT_REMINDER: "shop.support_reminder",
   /** DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): a shop previously learned about a new order only by refreshing /shop/orders. */
   SHOP_NEW_ORDER: "shop.new_order",
   /** To the shop: a customer subscribed (one product, or several newspapers together) — docs/newspaper-subscriptions-2026-11. */
