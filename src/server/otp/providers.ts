@@ -15,8 +15,10 @@ import { sendEmail } from "@/server/email/transport";
 import { sendText, smsOtpMode } from "@/server/messaging/sms-whatsapp";
 import { Msg91Error, sendMsg91Otp } from "@/server/messaging/msg91";
 import { SmsFortiusError, sendSmsFortiusText } from "@/server/messaging/smsfortius";
-import { renderEmailChangeOtpEmail, renderOtpEmail } from "@/server/notifications/templates";
+import { renderEmailChangeOtpEmail, renderMobileCodeCopyEmail, renderOtpEmail } from "@/server/notifications/templates";
+import { isPlaceholderEmail } from "@/lib/placeholder-email";
 import { getRule } from "@/server/services/settings";
+import { getEnv } from "@/lib/env";
 
 export type OtpChannel = "EMAIL" | "SMS";
 
@@ -29,6 +31,8 @@ export interface OtpMessage {
   purpose?: "LOGIN" | "EMAIL_CHANGE";
   /** batch-2026-10 WS-D: a ready-made email for a purpose with its own wording (overrides `purpose`). */
   rendered?: { subject: string; text: string; html: string };
+  /** SMS only: the account's e-mail. The test site's mock SMS also e-mails the mobile code there (owner, 28-Nov-2026). */
+  accountEmail?: string;
 }
 
 export interface OtpProvider {
@@ -67,12 +71,21 @@ export function codeFromSmsOtpText(body: string): string | null {
 /**
  * The mock outbox (SMS_PROVIDER=mock, test site only): testers read the code
  * at /admin/test-messages (or GET /api/admin/test-messages).
+ *
+ * Owner, 28-Nov-2026 ("switch test.gokesari.com to OTP on email … receive mobile and email authentication OTP on
+ * email"): the mobile code is also e-mailed to the account's own address, so both codes of a sign-in or a mobile
+ * check arrive in the inbox. The mock is refused on the production site (env check), so gokesari.com never does this.
  */
 const mockSmsOtpProvider: OtpProvider = {
   channel: "SMS",
   isAvailable: () => smsOtpMode() === "mock",
-  async send({ to, code, expiryMinutes }) {
+  async send({ to, code, expiryMinutes, accountEmail }) {
     await sendText("SMS", to, smsOtpText(code, expiryMinutes), "otp");
+    if (!accountEmail || isPlaceholderEmail(accountEmail) || getEnv().SMS_MOCK_EMAIL_COPY === "false") return;
+    // A copy only: the outbox above already holds the code, so a mail failure does not fail the request.
+    await sendEmail({ to: accountEmail, ...renderMobileCodeCopyEmail(code, expiryMinutes, to), keepRecipient: true }).catch((error: unknown) =>
+      console.error("[otp] test-site mobile code e-mail failed", error),
+    );
   },
 };
 

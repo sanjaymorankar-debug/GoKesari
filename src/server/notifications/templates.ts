@@ -756,6 +756,23 @@ export function renderEmailChangeOtpEmail(code: string, expiryMinutes: number): 
   };
 }
 
+/** Test site only (mock SMS): a copy of the mobile code, e-mailed to the account (owner, 28-Nov-2026). */
+export function renderMobileCodeCopyEmail(code: string, expiryMinutes: number, mobileE164: string): { subject: string; text: string; html: string } {
+  const masked = mobileE164.length > 4 ? `••••${mobileE164.slice(-4)}` : mobileE164;
+  return {
+    subject: `${code} is your Gokesari mobile code (test site)`,
+    text:
+      `Your Gokesari mobile code for ${masked} is ${code}.\n\n` +
+      `On the test site the mobile code is sent to this e-mail as well as by (test) SMS. ` +
+      `It works once and expires in ${expiryMinutes} minutes. If you did not ask for it, ignore this email.\n`,
+    html:
+      `<p>Your Gokesari mobile code for ${escapeHtml(masked)} is</p>` +
+      `<p style="font-size:28px;letter-spacing:6px;font-weight:600">${escapeHtml(code)}</p>` +
+      `<p style="color:#666;font-size:12px">Test site: the mobile code is sent to this e-mail as well as by (test) SMS. ` +
+      `It works once and expires in ${expiryMinutes} minutes. If you did not ask for it, ignore this email.</p>`,
+  };
+}
+
 export function renderOtpEmail(code: string, expiryMinutes: number): { subject: string; text: string; html: string } {
   return {
     subject: `${code} is your Gokesari sign-in code`,

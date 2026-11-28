@@ -53,4 +53,6 @@ env.GSP_PROVIDER = "mock";
 env.GSP_ENV = "sandbox";
 // Module 3: SMS / WhatsApp go to the mock outbox (outbound_test_messages).
 env.SMS_PROVIDER = "mock";
+// Suites read the last e-mailed code; the test-site copy of mobile codes is tested on its own (otp-mobile-email-copy).
+env.SMS_MOCK_EMAIL_COPY ??= "false";
 env.WHATSAPP_PROVIDER = "mock";

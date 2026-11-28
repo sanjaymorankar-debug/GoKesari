@@ -321,6 +321,7 @@ export async function issueCode(input: {
       expiryMinutes: rules.expiryMinutes,
       purpose: input.purpose === "EMAIL_CHANGE" ? "EMAIL_CHANGE" : "LOGIN",
       rendered,
+      accountEmail: input.bySms ? input.email : undefined,
     });
   } catch (error) {
     console.error("[otp] delivery failed", error);

@@ -230,6 +230,11 @@ const serverEnvSchema = z.object({
    */
   SMS_PROVIDER: z.enum(["none", "mock", "msg91", "smsfortius"]).default("none"),
   /**
+   * Test site with SMS_PROVIDER=mock: also e-mail each mobile code to the account's own address (owner,
+   * 28-Nov-2026), so mobile and e-mail codes both arrive by e-mail. No effect with a real SMS provider.
+   */
+  SMS_MOCK_EMAIL_COPY: z.enum(["true", "false"]).default("true"),
+  /**
    * `smsfortius` (owner, 26-Nov-2026): the owner's DLT-registered SMS vendor, same scope as `msg91` (one-time
    * codes only, with the DLT-approved OTP template). Needs SMSFORTIUS_API_KEY, SMSFORTIUS_SENDER_ID and
    * SMSFORTIUS_OTP_TEMPLATE_ID; with any missing, SMS codes report themselves unavailable.
