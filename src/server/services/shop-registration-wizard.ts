@@ -603,7 +603,8 @@ function v2NextStep(i: {
   if (!i.canContinue) return "IDENTITY";
   if (!i.ownerName) return "OWNER";
   // Pending payment: the owner resumes here and can use GoKesari as a customer meanwhile.
-  if (!i.v2.fee.paid) return "FEE";
+  // 0229 (docs/fee-pay-later-2026-11): "Pay later" asked (or approved) also passes the fee step.
+  if (!i.v2.fee.paid && !i.draft.feeDeferredAt) return "FEE";
   if (!i.shopType) return "TYPE";
   if (i.v2.licences.some((l) => !l.done)) return "V2_LICENCES";
   if (!i.addressConfirmed) return "ADDRESS";
@@ -1028,7 +1029,7 @@ export async function saveDraftShopType(input: { actor: Actor; shopType: string 
   // turnover slab for every shop — wholesale stores pay the same and pick Wholesale store here. Only a draft that paid
   // the earlier fee by kind (fee_kind set, before that decision) keeps the type its fee fixed.
   if (draft?.flowVersion === "v2") {
-    if (draft.feePaidAt === null) throw conflict("Please pay the registration fee first.", { reason: "STEP_OPEN", nextStep: "FEE" });
+    if (draft.feePaidAt === null && draft.feeDeferredAt === null) throw conflict("Please pay the registration fee first.", { reason: "STEP_OPEN", nextStep: "FEE" });
     if (draft.feeKind === "WHOLESALE" && shopType !== WHOLESALE_SHOP_TYPE) {
       throw conflict("You paid the wholesale shop fee, so your shop type is Wholesale store.", { reason: "SHOP_TYPE_FIXED_BY_FEE", fields: { shopType: "Wholesale store" } });
     }
@@ -1683,7 +1684,8 @@ async function v2ShopDetails(open: ShopRegistrationDraft, view: WizardView): Pro
 /** The fee the owner paid on the draft, as the shop's fee snapshot (registerShop's prepaidFee). */
 function v2PrepaidFee(open: ShopRegistrationDraft): PrepaidRegistrationFee {
   const quote = (partialOf(open) as { v2Fee?: Partial<V2FeeQuote> & { basePaise: number; gstPaise: number; gstRateBp: number; totalPaise: number } }).v2Fee;
-  if (!quote || open.feePaidAt === null) throw conflict("Please pay the registration fee first.", { reason: "STEP_OPEN", nextStep: "FEE" });
+  // 0229: "Pay later" — the fee is the shop's snapshot all the same, owed until it is paid (or taken from payouts).
+  if (!quote || (open.feePaidAt === null && open.feeDeferredAt === null)) throw conflict("Please pay the registration fee first.", { reason: "STEP_OPEN", nextStep: "FEE" });
   return {
     basePaise: quote.basePaise,
     gstPaise: quote.gstPaise,

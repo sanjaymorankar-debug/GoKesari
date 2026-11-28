@@ -973,7 +973,9 @@ async function autoApproveShopIfReadyInner(shopId: string): Promise<boolean> {
   const rule = await getRule("sellerVerification");
   if (!rule.autoApproveShop) return false;
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
-  if (!shop || shop.status !== "PENDING_APPROVAL" || shop.feePaymentStatus !== "PAID") return false;
+  if (!shop || shop.status !== "PENDING_APPROVAL") return false;
+  // 0229 (docs/fee-pay-later-2026-11): a fee an administrator approved to pay later does not hold the shop back.
+  if (shop.feePaymentStatus !== "PAID" && !(await (await import("./fee-pay-later")).feeDeferredByApproval(shop.id))) return false;
   if ((await missingMandatoryDocuments(shop, db, { countDeferred: true })).length > 0) return false;
 
   let approved: Shop;
@@ -1189,7 +1191,8 @@ function approveShopTransaction(
     // SM-002: documents, then fee — the order of the onboarding stages.
     const blocker = await onboardingApprovalBlocker(shop, tx);
     if (blocker) throw conflict(blocker, { lifecycleStatus: shop.lifecycleStatus });
-    assertRegistrationFeeSettled(shop);
+    // 0229 (docs/fee-pay-later-2026-11): an administrator approved paying the fee later — recovered from payouts.
+    if (!(await (await import("./fee-pay-later")).feeDeferredByApproval(shop.id, tx))) assertRegistrationFeeSettled(shop);
     if (waiveFssai && (fssaiMissing || mustHaveMissing.length > 0)) {
       await recordFssaiWaiver(tx, shop, waiveFssai.reason, actor, new Date(), { fssai: fssaiMissing });
     }

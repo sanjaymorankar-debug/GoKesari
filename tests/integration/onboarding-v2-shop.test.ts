@@ -723,3 +723,91 @@ describe("fee money safety", () => {
     expect(await db.select().from(shopPayments).where(eq(shopPayments.shopId, v.shop!.id))).toHaveLength(1);
   });
 });
+
+describe("0229: Pay later on the fee step (docs/fee-pay-later-2026-11)", () => {
+  async function payLaterFlag(enabled: boolean) {
+    await setFeatureFlag("shop_fee_pay_later_enabled", { enabled, districtCodes: null }, "pay-later integration test", admin);
+  }
+  /** Fee step → Pay later → type, licence promise, address and pin: the agreement step. */
+  async function askAndFinish() {
+    await walkToFee();
+    const { requestDraftFeePayLater } = await import("@/server/onboarding-v2/shop-flow");
+    const asked = await requestDraftFeePayLater(owner, { slab: 1, shopName: "V2 Test Mart", note: "will pay from first sales" });
+    expect(asked.amountPaise).toBeGreaterThan(0);
+    expect(asked.view.nextStep).toBe("TYPE");
+    expect(asked.view.v2?.fee.payLater).toMatchObject({ status: "REQUESTED", amountPaise: asked.amountPaise });
+    await saveDraftShopType({ actor: owner, shopType: "GENERAL_TRADING" });
+    await saveLicenceEntry(owner, { licenceKey: "SHOP_ACT", option: "LATER", promise: true });
+    const v = await addressAndPin();
+    expect(v.nextStep).toBe("SLA");
+    return asked.amountPaise;
+  }
+
+  it("the owner finishes registering; the shop waits unpaid until an administrator approves, then goes live", async () => {
+    await payLaterFlag(true);
+    const fee = await askAndFinish();
+    await prepareV2Agreement(owner);
+    const v = await acceptV2Agreement(owner, { acceptSellerTerms: true, acceptUndertaking: true });
+    expect(v.shop?.status).toBe("PENDING_APPROVAL");
+    expect(v.nextStep).toBe("WAITING");
+    const shopId = v.shop!.id;
+    const [shop] = await db.select().from(shops).where(eq(shops.id, shopId));
+    expect(shop).toMatchObject({ registrationFeePaise: fee, feePaymentStatus: "PENDING", amountPaidPaise: 0 });
+    const { shopFeePayLater } = await import("@/server/db/schema");
+    const [req] = await db.select().from(shopFeePayLater).where(eq(shopFeePayLater.ownerId, owner.id));
+    expect(req).toMatchObject({ status: "REQUESTED", shopId, amountPaise: fee, ownerNote: "will pay from first sales" });
+
+    const { decidePayLater } = await import("@/server/services/fee-pay-later");
+    const decided = await decidePayLater(req.id, "APPROVE", null, admin);
+    expect(decided).toMatchObject({ live: true, waitingFor: null });
+    const [after] = await db.select().from(shops).where(eq(shops.id, shopId));
+    expect(after).toMatchObject({ status: "APPROVED", feePaymentStatus: "PENDING" });
+  });
+
+  it("approved before the owner finishes: the shop goes live as soon as the agreement is accepted", async () => {
+    await payLaterFlag(true);
+    await askAndFinish();
+    const { shopFeePayLater } = await import("@/server/db/schema");
+    const [req] = await db.select().from(shopFeePayLater).where(eq(shopFeePayLater.ownerId, owner.id));
+    const { decidePayLater } = await import("@/server/services/fee-pay-later");
+    const decided = await decidePayLater(req.id, "APPROVE", null, admin);
+    expect(decided.live).toBe(false);
+    expect(decided.waitingFor).toMatch(/finish registering/);
+    await prepareV2Agreement(owner);
+    const v = await acceptV2Agreement(owner, { acceptSellerTerms: true, acceptUndertaking: true });
+    expect(v.shop?.status).toBe("APPROVED");
+  });
+
+  it("rejected: the registration returns to the fee step and the owner must pay", async () => {
+    await payLaterFlag(true);
+    await askAndFinish();
+    const { shopFeePayLater } = await import("@/server/db/schema");
+    const [req] = await db.select().from(shopFeePayLater).where(eq(shopFeePayLater.ownerId, owner.id));
+    const { decidePayLater } = await import("@/server/services/fee-pay-later");
+    await decidePayLater(req.id, "REJECT", "Please pay the fee first", admin);
+    const v = await view();
+    expect(v.nextStep).toBe("FEE");
+    expect(v.v2?.fee.payLater).toMatchObject({ status: "REJECTED", decisionNote: "Please pay the fee first" });
+    const { requestDraftFeePayLater } = await import("@/server/onboarding-v2/shop-flow");
+    await expect(requestDraftFeePayLater(owner, { slab: 1, shopName: "V2 Test Mart" })).rejects.toMatchObject({ details: { reason: "PAY_LATER_REJECTED" } });
+    // Paying works as before.
+    await payFee(1);
+    expect((await view()).nextStep).not.toBe("FEE");
+  });
+
+  it("paying online after asking ends the request; with the flag off the choice is refused", async () => {
+    await payLaterFlag(true);
+    await askAndFinish();
+    await payFee(1);
+    const { shopFeePayLater } = await import("@/server/db/schema");
+    const [req] = await db.select().from(shopFeePayLater).where(eq(shopFeePayLater.ownerId, owner.id));
+    expect(req.status).toBe("CANCELLED");
+
+    await payLaterFlag(false);
+    const other = await verifiedCustomer();
+    await walkToFee(other);
+    const { requestDraftFeePayLater } = await import("@/server/onboarding-v2/shop-flow");
+    await expect(requestDraftFeePayLater(other, { slab: 1, shopName: "Other Mart" })).rejects.toMatchObject({ details: { reason: "PAY_LATER_OFF" } });
+    expect((await getWizardDraft(other))!.v2?.fee.payLaterOffered).toBe(false);
+  });
+});

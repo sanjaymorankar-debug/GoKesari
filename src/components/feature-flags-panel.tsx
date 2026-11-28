@@ -104,7 +104,8 @@ export type FeatureFlagKey =
   | "flow_f21"
   | "flow_f22"
   | "delivery_partner_picoxpress_enabled"
-  | "pico_live_location_enabled";
+  | "pico_live_location_enabled"
+  | "shop_fee_pay_later_enabled";
 
 interface FlagValue {
   enabled: boolean;

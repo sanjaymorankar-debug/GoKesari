@@ -72,6 +72,9 @@ export interface V2State {
     paid: boolean;
     paidAtIst: string | null;
     paidPaise: number | null;
+    /** 0229 (docs/fee-pay-later-2026-11): "Pay later" offered (flag), and the request made on this registration. */
+    payLaterOffered: boolean;
+    payLater: { status: "REQUESTED" | "APPROVED" | "REJECTED"; amountPaise: number; requestedAtIst: string; decisionNote: string | null } | null;
     pending: boolean;
     lastFailed: boolean;
   };
@@ -245,8 +248,27 @@ export function FeeStep({ v2, ownerName, onError }: { v2: V2State; ownerName: st
     if (typeof url === "string" && url) window.location.assign(url);
     else window.location.reload();
   }
+  // 0229 (docs/fee-pay-later-2026-11): ask GoKesari to pay the fee later; the registration carries on meanwhile.
+  const [laterOpen, setLaterOpen] = useState(false);
+  const [laterNote, setLaterNote] = useState("");
+  async function payLater() {
+    setBusy(true);
+    const result = await call(`${API}/fee/pay-later`, { slab: v2.fee.byTurnover ? slab : null, couponCode: coupon.trim() || null, shopName, ownerName: owner || null, note: laterNote.trim() || null });
+    if (!result.ok) {
+      setBusy(false);
+      onError(result.error, result.fields);
+      return;
+    }
+    window.location.reload();
+  }
+  const rejected = v2.fee.payLater?.status === "REJECTED";
   return (
     <V2Card title="Pay the registration fee" intro="Your business is verified. Confirm your shop's name, choose your annual turnover and pay online (UPI, card or net banking).">
+      {rejected ? (
+        <Alert tone="warning" title="Pay later was not approved">
+          {v2.fee.payLater?.decisionNote ? `${v2.fee.payLater.decisionNote} — ` : ""}please pay the registration fee to continue.
+        </Alert>
+      ) : null}
       {v2.fee.lastFailed ? (
         <Alert tone="danger" title="Your last payment did not go through">
           No money was taken for it. You can try again below.
@@ -298,6 +320,26 @@ export function FeeStep({ v2, ownerName, onError }: { v2: V2State; ownerName: st
       <Button className="w-full" disabled={busy || shopName.trim().length < 2 || !chosen} onClick={() => void pay()} data-testid="v2-fee-pay">
         {chosen ? (coupon.trim() ? "Apply the coupon and pay" : `Pay ${rupees(chosen.totalPaise)}`) : "Choose your annual turnover"}
       </Button>
+      {v2.fee.payLaterOffered && !rejected ? (
+        laterOpen ? (
+          <div className="space-y-2 rounded-xl border border-[var(--gk-line)] p-3" data-testid="v2-pay-later-form">
+            <p className="text-sm text-ink-700">
+              Ask GoKesari to let you pay {chosen ? rupees(chosen.totalPaise) : "the fee"} later. Finish your registration meanwhile; once GoKesari approves, your shop goes live and the fee is
+              taken from your payouts until it is paid (all of a payout when it is smaller than the fee). You can still pay it any time.
+            </p>
+            <Field label="Anything GoKesari should know (optional)">
+              <textarea className={inputClass} rows={2} maxLength={500} value={laterNote} onChange={(e) => setLaterNote(e.target.value)} />
+            </Field>
+            <Button variant="secondary" className="w-full" disabled={busy || shopName.trim().length < 2 || !chosen} onClick={() => void payLater()} data-testid="v2-pay-later-submit">
+              Ask to pay later
+            </Button>
+          </div>
+        ) : (
+          <Button variant="secondary" className="w-full" disabled={busy} onClick={() => setLaterOpen(true)} data-testid="v2-pay-later">
+            I will pay later
+          </Button>
+        )
+      ) : null}
       <Alert tone="warning" title="Pending until the fee is paid">
         Your registration waits here until the payment clears. You can still shop on GoKesari as a customer and come back to finish.
       </Alert>
@@ -531,6 +573,11 @@ export function SlaStep({ state, busy, send, reload }: { state: V2WizardLike; bu
             </li>
           ))}
           {v2.fee.paidAtIst ? <li>Fee paid on {v2.fee.paidAtIst}</li> : null}
+          {!v2.fee.paidAtIst && v2.fee.payLater ? (
+            <li data-testid="v2-pay-later-summary">
+              Fee {rupees(v2.fee.payLater.amountPaise)}: pay later — {v2.fee.payLater.status === "APPROVED" ? "approved by GoKesari" : "waiting for GoKesari's approval"}
+            </li>
+          ) : null}
         </ul>
         <Button className="w-full" disabled={busy} onClick={() => void send(`${API}/agreement`, { action: "prepare" })} data-testid="v2-sla-prepare">
           Continue to my seller agreement
@@ -630,9 +677,25 @@ export function V2WaitingStep({ state }: { state: V2WizardLike }) {
   // GST / PAN check.
   return (
     <V2Card title="Your shop is with GoKesari's team">
-      <Alert tone="warning">
-        {state.shop?.name} is waiting for a quick check of your GST / PAN details. Your fee is paid. We&apos;ll e-mail you as soon as your shop is live.
-      </Alert>
+      {v2.fee.payLater && !v2.fee.paid ? (
+        <Alert tone="warning">
+          {v2.fee.payLater.status === "APPROVED"
+            ? `${state.shop?.name}: paying the fee later is approved. It is waiting for a quick check of your GST / PAN details. We'll e-mail you as soon as your shop is live.`
+            : v2.fee.payLater.status === "REJECTED"
+              ? `Paying the fee later was not approved${v2.fee.payLater.decisionNote ? ` (${v2.fee.payLater.decisionNote})` : ""}. Please pay the registration fee to put ${state.shop?.name} live.`
+              : `${state.shop?.name} is waiting for GoKesari to approve paying the registration fee later. We'll e-mail you the answer. You can also pay the fee now from Registration fee.`}
+        </Alert>
+      ) : null}
+      {v2.fee.payLater && !v2.fee.paid && state.shop ? (
+        <a href={`/shop/registration-fee?shop=${state.shop.id}`} className="inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-kesari-600 px-4 text-sm font-medium text-kesari-700" data-testid="v2-waiting-pay-fee">
+          Pay the registration fee now
+        </a>
+      ) : null}
+      {v2.fee.payLater && !v2.fee.paid ? null : (
+        <Alert tone="warning">
+          {state.shop?.name} is waiting for a quick check of your GST / PAN details. Your fee is paid. We&apos;ll e-mail you as soon as your shop is live.
+        </Alert>
+      )}
       <p className="text-sm text-ink-700">Until then your shop receives no orders; you can still shop on GoKesari as a customer.</p>
       <ReturnToLink returnTo={v2.returnTo} />
     </V2Card>

@@ -141,6 +141,12 @@ export interface V2View {
     paidAt: string | null;
     paidAtIst: string | null;
     paidPaise: number | null;
+    /**
+     * 0229 (docs/fee-pay-later-2026-11): flag shop_fee_pay_later_enabled — the owner may choose "Pay later";
+     * `payLater` is the request made on this draft (the fee step counts as done while it is asked or approved).
+     */
+    payLaterOffered: boolean;
+    payLater: { status: "REQUESTED" | "APPROVED" | "REJECTED"; amountPaise: number; requestedAtIst: string; decisionNote: string | null } | null;
     /** A checkout is open at the gateway (pending payment). */
     pending: boolean;
     lastFailed: boolean;
@@ -274,6 +280,13 @@ export async function v2ViewOf(draft: ShopRegistrationDraft, input: V2ViewInput)
   const latest = intents[0];
   const paid = draft.feePaidAt !== null;
   const feeOptions = await v2FeeOptions();
+  // 0229: the latest pay-later request made on this draft (a rejected one is shown until the owner pays).
+  const { payLaterEnabled, latestPayLaterForDraft } = await import("@/server/services/fee-pay-later");
+  const [payLaterOffered, payLaterRow] = await Promise.all([payLaterEnabled(), latestPayLaterForDraft(draft.id)]);
+  const payLater =
+    payLaterRow && (payLaterRow.status === "REQUESTED" || payLaterRow.status === "APPROVED" || payLaterRow.status === "REJECTED") && !paid
+      ? { status: payLaterRow.status, amountPaise: Number(payLaterRow.amountPaise), requestedAtIst: formatIstStamp(payLaterRow.requestedAt), decisionNote: payLaterRow.decisionNote }
+      : null;
   const paidIntent = draft.feePaymentIntentId ? intents.find((r) => r.id === draft.feePaymentIntentId) : undefined;
 
   const entries = await db.select().from(registrationLicenceEntries).where(eq(registrationLicenceEntries.draftId, draft.id));
@@ -329,6 +342,8 @@ export async function v2ViewOf(draft: ShopRegistrationDraft, input: V2ViewInput)
       paidAt: draft.feePaidAt?.toISOString() ?? null,
       paidAtIst: draft.feePaidAt ? formatIstStamp(draft.feePaidAt) : null,
       paidPaise: paid ? (paidIntent?.amountPaise ?? extra.v2Fee?.totalPaise ?? null) : null,
+      payLaterOffered,
+      payLater,
       pending: !paid && Boolean(latest && isLive(latest)),
       lastFailed: !paid && (latest?.status === "FAILED" || latest?.status === "EXPIRED"),
     },

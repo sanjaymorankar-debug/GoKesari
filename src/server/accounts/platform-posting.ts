@@ -173,6 +173,10 @@ export async function postGokesariActivity(shopId: string, options: { limit?: nu
             await journal([{ account: "SALES", debitPaise: -amount }, { account: "GOKESARI_ACCOUNT", creditPaise: -amount }]);
           }
           break;
+        case "REGISTRATION_FEE_RECOVERY":
+          // 0229: the shop's registration fee, paid out of what GoKesari owed it.
+          if (amount !== 0) await journal([{ account: "EXPENSE", subAccount: "GoKesari registration fee", debitPaise: -amount }, { account: "GOKESARI_ACCOUNT", creditPaise: -amount }]);
+          break;
         default:
           // DELIVERY_CHARGE and REGISTRATION_FEE are informational (0); SEC95_GST is already out of the sale
           // (the restaurant's bill of supply is booked without that GST); WALLET_TOPUP and

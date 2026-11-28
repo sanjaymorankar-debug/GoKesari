@@ -439,6 +439,7 @@ export const shopPaymentMethodEnum = pgEnum("shop_payment_method", [
   /** Module 3: the fee paid online at self-registration (Cashfree, webhook-confirmed). */
   "CASHFREE",
   "ONLINE", // batch-2026-10 WS-D: a fee captured through the payment-intent gateway (F1.7.3)
+  "PAYOUT_DEDUCTION", // 0229 (docs/fee-pay-later-2026-11): a "pay later" fee taken out of the shop's payout
 ]);
 
 export const referralStatusEnum = pgEnum("referral_status", [
@@ -10305,6 +10306,8 @@ export const PAYOUT_LINE_TYPES = [
   "WALLET_TOPUP",
   "CARRY_FORWARD",
   "SEC95_GST",
+  /** 0229 (docs/fee-pay-later-2026-11): a "pay later" registration fee taken out of the payout. */
+  "REGISTRATION_FEE_RECOVERY",
 ] as const;
 export type PayoutLineType = (typeof PAYOUT_LINE_TYPES)[number];
 
@@ -11277,6 +11280,8 @@ export const FEATURE_FLAG_KEYS = [
   "delivery_partner_picoxpress_enabled",
   // Pico's live-location webhook is a paid add-on (charged per push): built, seeded OFF on both sites.
   "pico_live_location_enabled",
+  // docs/fee-pay-later-2026-11 (0229): the owner may ask to pay the registration fee later (admin approves; recovered from payouts).
+  "shop_fee_pay_later_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -12122,6 +12127,8 @@ export const shopRegistrationDrafts = pgTable(
     feePaise: integer("fee_paise"),
     feePaymentIntentId: uuid("fee_payment_intent_id"),
     feePaidAt: timestamp("fee_paid_at", { withTimezone: true }),
+    /** 0229 (docs/fee-pay-later-2026-11): the owner chose "Pay later" on the fee step (a shop_fee_pay_later request). */
+    feeDeferredAt: timestamp("fee_deferred_at", { withTimezone: true }),
     slaAcceptedAt: timestamp("sla_accepted_at", { withTimezone: true }),
     /** OPEN while the owner fills it in; SUBMITTED once the shop exists (payment next); COMPLETED once the shop is live (0113). */
     status: text("status", { enum: ["OPEN", "SUBMITTED", "COMPLETED", "ABANDONED"] }).notNull().default("OPEN"),
@@ -13867,3 +13874,58 @@ export * from "./dual-auth-schema"; // docs/dual-auth-2026-11 (0219)
 export * from "./flows-v3-schema"; // docs/flows-v3 (0221)
 export * from "./flows-v3-wave4-schema"; // docs/flows-v3/wave4.md (0225)
 /* <<< GoKesari Health */
+
+/* >>> docs/fee-pay-later-2026-11 (0229): the registration fee paid later, out of the shop's payouts. */
+export const SHOP_FEE_PAY_LATER_STATUSES = ["REQUESTED", "APPROVED", "REJECTED", "CANCELLED", "SETTLED"] as const;
+export type ShopFeePayLaterStatus = (typeof SHOP_FEE_PAY_LATER_STATUSES)[number];
+
+/** The owner asked to pay the registration fee later; an administrator approves or rejects. */
+export const shopFeePayLater = pgTable(
+  "shop_fee_pay_later",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerId: uuid("owner_id").notNull(),
+    /** The onboarding-v2 draft it was asked on (the shop is created later), or null when asked for an existing shop. */
+    draftId: uuid("draft_id"),
+    shopId: uuid("shop_id"),
+    /** The fee owed when it was asked for (GST included). */
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    status: text("status", { enum: SHOP_FEE_PAY_LATER_STATUSES }).notNull().default("REQUESTED"),
+    ownerNote: text("owner_note"),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decidedBy: uuid("decided_by"),
+    decisionNote: text("decision_note"),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_fee_pay_later_open_draft_uq").on(t.draftId).where(sql`${t.status} IN ('REQUESTED','APPROVED') AND ${t.draftId} IS NOT NULL`),
+    uniqueIndex("shop_fee_pay_later_open_shop_uq").on(t.shopId).where(sql`${t.status} IN ('REQUESTED','APPROVED') AND ${t.shopId} IS NOT NULL`),
+    index("shop_fee_pay_later_status_idx").on(t.status, t.requestedAt),
+  ],
+);
+export type ShopFeePayLater = typeof shopFeePayLater.$inferSelect;
+
+/** An amount taken out of a payout (payout cycle or weekly settlement) for a pay-later fee. */
+export const shopFeeRecoveries = pgTable(
+  "shop_fee_recoveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    payLaterId: uuid("pay_later_id")
+      .notNull()
+      .references(() => shopFeePayLater.id, { onDelete: "restrict" }),
+    shopId: uuid("shop_id").notNull(),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** The payout before the deduction (for the owner's statement). */
+    payoutBeforePaise: bigint("payout_before_paise", { mode: "number" }).notNull(),
+    sourceType: text("source_type", { enum: ["PAYOUT_CYCLE", "SHOP_SETTLEMENT"] }).notNull(),
+    sourceId: uuid("source_id").notNull(),
+    shopPaymentId: uuid("shop_payment_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("shop_fee_recoveries_source_type_source_id_shop_id_key").on(t.sourceType, t.sourceId, t.shopId), index("shop_fee_recoveries_shop_idx").on(t.shopId, t.createdAt)],
+);
+export type ShopFeeRecovery = typeof shopFeeRecoveries.$inferSelect;
+/* <<< docs/fee-pay-later-2026-11 */
